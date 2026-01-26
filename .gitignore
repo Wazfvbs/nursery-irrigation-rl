@@ -1,0 +1,34 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# venv
+.venv/
+venv/
+
+# OS / IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Outputs / logs
+outputs/
+logs/
+runs/
+
+# Models / checkpoints
+*.zip
+*.pt
+*.pth
+*.ckpt
+
+# Data (optional)
+*.csv
+*.json
+
+# If you WANT to keep small result csv/json, remove the above two lines.
