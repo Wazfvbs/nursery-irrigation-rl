@@ -1,0 +1,7 @@
+﻿numpy>=1.24
+pandas>=2.0
+pyyaml>=6.0
+gymnasium>=0.29
+stable-baselines3>=2.3
+torch>=2.1
+matplotlib>=3.7
