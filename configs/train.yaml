@@ -1,0 +1,31 @@
+﻿seed: 42
+total_timesteps: 200000
+policy: "MlpPolicy"
+
+ppo:
+  learning_rate: 0.0003
+  n_steps: 2048
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01
+
+ablation:
+  use_dynamic_target: true
+  use_reward_shaping: true
+  use_ucb_bonus: true
+  use_robust_training: true
+
+paths:
+  env_config: "configs/env.yaml"
+  out_dir: "outputs"
+
+reward:
+  w_track: 1.0
+  w_water: 0.05
+  w_improve: 0.2
+  w_smooth: 0.02
+  w_safe: 5.0
+  w_ucb: 0.1

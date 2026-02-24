@@ -1,0 +1,12 @@
+﻿# Test-time disturbance ranges (domain shift)
+enabled: true
+weather_bias:
+  ET0_mult_min: 0.90
+  ET0_mult_max: 1.10
+sensor_noise:
+  theta_sigma: 0.010
+param_noise:
+  Kc_mult_min: 0.90
+  Kc_mult_max: 1.10
+  Zr_mult_min: 0.90
+  Zr_mult_max: 1.10
