@@ -16,7 +16,7 @@ from stable_baselines3 import PPO
 
 from irrigation_rl.train.ppo_train import load_yaml, train_ppo, build_env
 from irrigation_rl.train.evaluate import evaluate_policy
-from irrigation_rl.metrics.metrics import compute_metrics_from_csv
+from irrigation_rl.train.metrics import compute_metrics_from_csv
 
 
 # ========== utils ==========
@@ -112,6 +112,7 @@ def main():
             eval_cfg = copy.deepcopy(train_cfg)
             eval_cfg.setdefault("ablation", {})
             eval_cfg["ablation"]["use_ucb_bonus"] = False
+            eval_cfg["ablation"]["use_robust_training"] = False
             eval_cfg.setdefault("reward", {})
             eval_cfg["reward"]["w_ucb"] = 0.0
 

@@ -16,7 +16,7 @@ from stable_baselines3 import PPO
 
 from irrigation_rl.train.ppo_train import load_yaml, build_env
 from irrigation_rl.train.evaluate import evaluate_policy
-from irrigation_rl.metrics.metrics import compute_metrics_from_csv
+from irrigation_rl.train.metrics import compute_metrics_from_csv
 from irrigation_rl.baselines.threshold import ThresholdPolicy
 from irrigation_rl.baselines.fao_rule import FAORulePolicy
 from irrigation_rl.robust.obs_noise_wrapper import ObsNoiseWrapper, ObsNoiseConfig
@@ -84,6 +84,8 @@ def rollout_baseline_noise(env, policy_name: str, policy, out_dir: str) -> Dict[
         "e_mid_ref": [],
         # action/reward
         "I": [],
+        "I_raw": [],
+        "clipped": [],
         "reward": [],
     }
 
@@ -119,6 +121,8 @@ def rollout_baseline_noise(env, policy_name: str, policy, out_dir: str) -> Dict[
         traj["e_mid_ref"].append(float(abs(Dr_val - mid_ref)))
 
         traj["I"].append(float(info_next.get("I_mm", I)))
+        traj["I_raw"].append(float(info_next.get("I_raw_mm", I)))
+        traj["clipped"].append(int(info_next.get("clipped", 0)))
         traj["reward"].append(float(reward))
 
         obs = obs_next
@@ -133,7 +137,8 @@ def rollout_baseline_noise(env, policy_name: str, policy, out_dir: str) -> Dict[
     metrics = compute_metrics_from_csv(traj_csv)
     metrics.update({
         "method": policy_name,
-        "scenario": "noise_test",
+        "scenario": "robustness",
+        "setting": "noise_only",
         "trajectory_csv": traj_csv,
         "out_dir": out_dir,
     })
@@ -201,6 +206,7 @@ def main():
         eval_cfg = copy.deepcopy(base_cfg)
         eval_cfg.setdefault("ablation", {})
         eval_cfg["ablation"]["use_ucb_bonus"] = False
+        eval_cfg["ablation"]["use_robust_training"] = False
         eval_cfg.setdefault("reward", {})
         eval_cfg["reward"]["w_ucb"] = 0.0
 
@@ -218,7 +224,8 @@ def main():
         metrics.update({
             "method": "PPO",
             "seed": seed,
-            "scenario": "noise_test",
+            "scenario": "robustness",
+            "setting": "noise_only",
             "model_path": model_zip,
             "trajectory_csv": traj_csv,
             "out_dir": out_dir,
@@ -241,6 +248,7 @@ def main():
         eval_cfg = copy.deepcopy(base_cfg)
         eval_cfg.setdefault("ablation", {})
         eval_cfg["ablation"]["use_ucb_bonus"] = False
+        eval_cfg["ablation"]["use_robust_training"] = False
         eval_cfg.setdefault("reward", {})
         eval_cfg["reward"]["w_ucb"] = 0.0
 

@@ -13,7 +13,7 @@ from typing import Dict, Any, List
 
 import numpy as np
 
-from irrigation_rl.metrics.metrics import compute_metrics_from_csv, compute_metrics_from_df
+from irrigation_rl.train.metrics import compute_metrics_from_csv, compute_metrics_from_df
 from irrigation_rl.train.ppo_train import load_yaml, build_env
 
 from irrigation_rl.baselines.threshold import ThresholdPolicy
@@ -153,6 +153,7 @@ def rollout_policy(
         *,
         seed: int,
         scenario: str = "nominal",
+        setting: str = "nominal",
         save_csv: bool = True,
 ) -> Dict[str, Any]:
     """
@@ -265,6 +266,7 @@ def rollout_policy(
     metrics.update({
         "method": policy_name,
         "scenario": scenario,
+        "setting": setting,
         "seed": int(seed),
         "trajectory_csv": traj_csv,
         "out_dir": out_dir,
@@ -389,6 +391,7 @@ def main():
     eval_train_cfg = copy.deepcopy(train_cfg)
     if "ablation" in eval_train_cfg:
         eval_train_cfg["ablation"]["use_ucb_bonus"] = False
+        eval_train_cfg["ablation"]["use_robust_training"] = False
     if "reward" in eval_train_cfg:
         eval_train_cfg["reward"]["w_ucb"] = 0.0
 
@@ -451,6 +454,7 @@ def main():
     # -------- report seeds rollouts --------
     for i in range(int(args.num_seeds)):
         seed = seed_start + i
+        scenario_name = "nominal" if str(args.setting).lower() == "nominal" else "robustness"
 
         # get constants via reset-info (robust against wrappers)
         env0 = build_env_compat(env_cfg, eval_train_cfg, seed=seed)
@@ -491,7 +495,15 @@ def main():
             env = apply_robust_wrappers(env, setting=args.setting, noise_cfg=noise_cfg_norm, seed=seed)
 
             out_dir = os.path.join(args.out, name, f"seed{seed}")
-            m = rollout_policy(env, name, pol, out_dir, seed=seed, scenario=args.setting)
+            m = rollout_policy(
+                env,
+                name,
+                pol,
+                out_dir,
+                seed=seed,
+                scenario=scenario_name,
+                setting=str(args.setting),
+            )
             all_metrics.append(m)
 
         print(f"[OK] seed {seed} done")

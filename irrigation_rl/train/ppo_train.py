@@ -1,24 +1,54 @@
-﻿from __future__ import annotations
-from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from __future__ import annotations
 
 import os
-import yaml
-import numpy as np
+from typing import Any, Dict
 
+import yaml
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from irrigation_rl.envs.nursery_env import NurseryIrrigationEnv, EnvConfig
-from irrigation_rl.envs.weather import AssumptionWeatherProvider, AssumptionWeatherConfig, ExternalCSVWeatherProvider
-from irrigation_rl.rewards.reward import RewardFunction, RewardConfig
-from irrigation_rl.rewards.target import DynamicTarget, TargetConfig
-from irrigation_rl.exploration.ucb_bonus import ActionBinUCB, UCBConfig
+from irrigation_rl.envs.nursery_env import EnvConfig, NurseryIrrigationEnv
 from irrigation_rl.envs.reward_wrapper import RewardWrapper, WrapperFlags
+from irrigation_rl.envs.weather import (
+    AssumptionWeatherConfig,
+    AssumptionWeatherProvider,
+    ExternalCSVWeatherProvider,
+)
+from irrigation_rl.rewards.reward import RewardConfig
+from irrigation_rl.robust.domain_randomization_wrapper import DomainRandomizationWrapper
+from irrigation_rl.robust.obs_noise_wrapper import ObsNoiseConfig, ObsNoiseWrapper
+from irrigation_rl.robust.randomization import RandomizationConfig
+
 
 def load_yaml(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def _load_randomization_cfg(train_cfg: Dict[str, Any]) -> RandomizationConfig:
+    path = str(train_cfg.get("robust_train_cfg_path", "configs/noise_train.yaml"))
+    raw: Dict[str, Any] = {}
+    if path and os.path.exists(path):
+        try:
+            raw = load_yaml(path) or {}
+        except Exception:
+            raw = {}
+
+    weather = raw.get("weather_bias", {}) if isinstance(raw, dict) else {}
+    sensor = raw.get("sensor_noise", {}) if isinstance(raw, dict) else {}
+    params = raw.get("param_noise", {}) if isinstance(raw, dict) else {}
+
+    return RandomizationConfig(
+        enabled=bool(raw.get("enabled", True)),
+        ET0_mult_min=float(weather.get("ET0_mult_min", 0.95)),
+        ET0_mult_max=float(weather.get("ET0_mult_max", 1.05)),
+        theta_sigma=float(sensor.get("theta_sigma", 0.005)),
+        Kc_mult_min=float(params.get("Kc_mult_min", 0.95)),
+        Kc_mult_max=float(params.get("Kc_mult_max", 1.05)),
+        Zr_mult_min=float(params.get("Zr_mult_min", 0.95)),
+        Zr_mult_max=float(params.get("Zr_mult_max", 1.05)),
+    )
+
 
 def build_env(env_cfg: dict, train_cfg: dict, seed: int = 0):
     cfg = EnvConfig(
@@ -43,32 +73,27 @@ def build_env(env_cfg: dict, train_cfg: dict, seed: int = 0):
     if mode == "external" and env_cfg["weather"].get("csv_path"):
         weather = ExternalCSVWeatherProvider(env_cfg["weather"]["csv_path"])
     else:
-        wcfg = AssumptionWeatherConfig(
-            T_mean_C=env_cfg["weather"].get("T_mean_C", 20.0),
-            RH_pct=env_cfg["weather"].get("RH_pct", 60.0),
-            u2_mps=env_cfg["weather"].get("u2_mps", 1.0),
-            Rs_MJ_m2_day=env_cfg["weather"].get("Rs_MJ_m2_day", 15.0),
-            noise_sigma=0.0
+        weather = AssumptionWeatherProvider(
+            AssumptionWeatherConfig(
+                T_mean_C=env_cfg["weather"].get("T_mean_C", 20.0),
+                RH_pct=env_cfg["weather"].get("RH_pct", 60.0),
+                u2_mps=env_cfg["weather"].get("u2_mps", 1.0),
+                Rs_MJ_m2_day=env_cfg["weather"].get("Rs_MJ_m2_day", 15.0),
+                noise_sigma=0.0,
+            )
         )
-        weather = AssumptionWeatherProvider(wcfg)
 
     env = NurseryIrrigationEnv(cfg=cfg, weather=weather, seed=seed)
-
-    # ===== RewardWrapper 注入（训练阶段 reward 不再是 0）=====
     ab = train_cfg.get("ablation", {}) if isinstance(train_cfg, dict) else {}
 
     flags = WrapperFlags(
         use_dynamic_target=bool(ab.get("use_dynamic_target", True)),
         use_reward_shaping=bool(ab.get("use_reward_shaping", True)),
         use_ucb_bonus=bool(ab.get("use_ucb_bonus", True)),
-
-        # ✅ 允许在 train.yaml 里覆盖固定目标区间
         fixed_lo_frac_TAW=float(ab.get("fixed_lo_frac_TAW", 0.15)),
         fixed_hi_frac_TAW=float(ab.get("fixed_hi_frac_TAW", 0.35)),
     )
 
-
-# 你也可以把 reward 的权重写进 train.yaml（可选）
     reward_cfg = RewardConfig()
     reward_block = train_cfg.get("reward", {})
     if isinstance(reward_block, dict):
@@ -80,7 +105,24 @@ def build_env(env_cfg: dict, train_cfg: dict, seed: int = 0):
         reward_cfg.w_ucb = float(reward_block.get("w_ucb", reward_cfg.w_ucb))
 
     env = RewardWrapper(env, reward_cfg=reward_cfg, flags=flags)
+
+    # Train-time domain randomization: enabled for Full, disabled for Vanilla.
+    if bool(ab.get("use_robust_training", False)):
+        dr_cfg = _load_randomization_cfg(train_cfg)
+        if dr_cfg.enabled:
+            env = DomainRandomizationWrapper(env, cfg=dr_cfg, seed=seed)
+            if float(dr_cfg.theta_sigma) > 0.0:
+                obs_cfg = ObsNoiseConfig(
+                    enabled=True,
+                    Dr_sigma_mm=0.0,
+                    theta_sigma=float(dr_cfg.theta_sigma),
+                    ET0_sigma=0.0,
+                )
+                env = ObsNoiseWrapper(env, cfg=obs_cfg, seed=seed)
+
     return env
+
+
 def train_ppo(train_cfg_path: str) -> str:
     train_cfg = load_yaml(train_cfg_path)
     env_cfg = load_yaml(train_cfg["paths"]["env_config"])

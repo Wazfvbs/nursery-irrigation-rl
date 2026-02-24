@@ -1,2 +1,3 @@
-﻿from .randomization import RandomizationConfig, apply_domain_randomization
-from .et0_mult_wrapper import ET0MultWrapper, ET0MultConfig
+from .domain_randomization_wrapper import DomainRandomizationWrapper
+from .et0_mult_wrapper import ET0MultConfig, ET0MultWrapper
+from .randomization import RandomizationConfig, apply_domain_randomization

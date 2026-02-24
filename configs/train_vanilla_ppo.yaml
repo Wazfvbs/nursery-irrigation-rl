@@ -1,10 +1,10 @@
 seed: 42
 method_name: VanillaPPO
-robust_train_cfg_path: configs/noise_train.yaml
+total_timesteps: 200000
+policy: "MlpPolicy"
 
-train:
-  total_timesteps: 200000
-  learning_rate: 3.0e-4
+ppo:
+  learning_rate: 0.0003
   n_steps: 2048
   batch_size: 64
   n_epochs: 10
@@ -12,15 +12,6 @@ train:
   gae_lambda: 0.95
   clip_range: 0.2
   ent_coef: 0.01
-  policy: "MlpPolicy"
-
-reward:
-  w_track: 1.0
-  w_water: 0.05
-  w_smooth: 0.1
-  w_improve: 0.2
-  w_safe: 0.1
-  w_ucb: 0.0
 
 ablation:
   use_dynamic_target: false
@@ -29,3 +20,15 @@ ablation:
   use_robust_training: false
   fixed_lo_frac_TAW: 0.15
   fixed_hi_frac_TAW: 0.35
+
+paths:
+  env_config: "configs/env.yaml"
+  out_dir: "outputs/vanilla_ppo_runs"
+
+reward:
+  w_track: 1.0
+  w_water: 0.05
+  w_improve: 0.2
+  w_smooth: 0.02
+  w_safe: 5.0
+  w_ucb: 0.0

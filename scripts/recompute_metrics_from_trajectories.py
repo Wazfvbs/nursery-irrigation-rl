@@ -19,7 +19,7 @@ import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from typing import Any, Dict, List
 
-from irrigation_rl.metrics.metrics import compute_metrics_from_csv
+from irrigation_rl.train.metrics import compute_metrics_from_csv
 
 
 def find_files(root: str, filename: str) -> List[str]:
