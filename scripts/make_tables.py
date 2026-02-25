@@ -158,7 +158,7 @@ def to_mean_std(df: pd.DataFrame, group_key: str, cols: List[str]) -> pd.DataFra
     for col in cols:
         m = g[f"{col}_mean"]
         s = g[f"{col}_std"]
-        out[col] = m.map(lambda x: f"{x:.6f}" if pd.notna(x) else "nan") + " 卤 " + s.map(
+        out[col] = m.map(lambda x: f"{x:.6f}" if pd.notna(x) else "nan") + " ± " + s.map(
             lambda x: f"{x:.6f}" if pd.notna(x) else "nan"
         )
     return out

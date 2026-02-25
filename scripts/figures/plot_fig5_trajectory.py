@@ -28,8 +28,10 @@ def set_nature_style():
 
 def compute_summary(df: pd.DataFrame, dt_days: float = 1.0) -> dict:
     Dr = df["Dr"].to_numpy(float)
-    lo = df["Dr_lo"].to_numpy(float)
-    hi = df["Dr_hi"].to_numpy(float)
+    lo_col = "Dr_lo_ref" if "Dr_lo_ref" in df.columns else "Dr_lo"
+    hi_col = "Dr_hi_ref" if "Dr_hi_ref" in df.columns else "Dr_hi"
+    lo = df[lo_col].to_numpy(float)
+    hi = df[hi_col].to_numpy(float)
     I = df["I"].to_numpy(float)
 
     within = (Dr >= lo) & (Dr <= hi)
@@ -72,18 +74,22 @@ def main():
     df = pd.read_csv(args.traj)
 
     # Basic column check
-    required_cols = {"Dr", "Dr_lo", "Dr_hi", "I"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
+    if "Dr" not in df.columns or "I" not in df.columns:
+        raise ValueError("Missing required columns: Dr/I")
+    has_ref = ("Dr_lo_ref" in df.columns) and ("Dr_hi_ref" in df.columns)
+    has_train = ("Dr_lo" in df.columns) and ("Dr_hi" in df.columns)
+    if not has_ref and not has_train:
+        raise ValueError("Missing interval columns: need Dr_lo_ref/Dr_hi_ref or Dr_lo/Dr_hi")
 
     if args.skip_first > 0:
         df = df.iloc[args.skip_first:].reset_index(drop=True)
 
     x = df["day"].to_numpy() if "day" in df.columns else np.arange(len(df))
     Dr = df["Dr"].to_numpy(float)
-    lo = df["Dr_lo"].to_numpy(float)
-    hi = df["Dr_hi"].to_numpy(float)
+    lo_col = "Dr_lo_ref" if "Dr_lo_ref" in df.columns else "Dr_lo"
+    hi_col = "Dr_hi_ref" if "Dr_hi_ref" in df.columns else "Dr_hi"
+    lo = df[lo_col].to_numpy(float)
+    hi = df[hi_col].to_numpy(float)
     I = df["I"].to_numpy(float)
 
     summ = compute_summary(df, dt_days=args.dt_days)

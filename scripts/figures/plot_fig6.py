@@ -48,6 +48,14 @@ def _collect_runs(pattern: str) -> dict:
     return out
 
 
+def _pick_first_nonempty_pattern(patterns: list[str]) -> str:
+    for p in patterns:
+        if len(glob.glob(p)) > 0:
+            return p
+    # return first candidate for clearer downstream error
+    return patterns[0]
+
+
 def _stack_by_day(runs: dict, col: str) -> pd.DataFrame:
     rows = []
     for seed, df in runs.items():
@@ -298,9 +306,18 @@ def main():
 
     root = Path(args.root)
 
-    ppo_pat = str(root / "outputs" / "ppo_runs" / "seed*" / "eval" / "trajectory.csv")
-    fao_pat = str(root / "outputs" / "baselines" / "FAORule" / "seed*" / "trajectory.csv")
-    thr_pat = str(root / "outputs" / "baselines" / "Threshold" / "seed*" / "trajectory.csv")
+    ppo_pat = _pick_first_nonempty_pattern([
+        str(root / "outputs" / "ppo_runs" / "seed*" / "eval" / "trajectory.csv"),
+        str(root / "outputs" / "ablation_ref" / "Full" / "seed*" / "eval" / "trajectory.csv"),
+    ])
+    fao_pat = _pick_first_nonempty_pattern([
+        str(root / "outputs" / "baselines" / "FAORule" / "seed*" / "trajectory.csv"),
+        str(root / "outputs" / "baselines_ref" / "FAORule" / "seed*" / "trajectory.csv"),
+    ])
+    thr_pat = _pick_first_nonempty_pattern([
+        str(root / "outputs" / "baselines" / "Threshold" / "seed*" / "trajectory.csv"),
+        str(root / "outputs" / "baselines_ref" / "Threshold" / "seed*" / "trajectory.csv"),
+    ])
 
     ppo_runs = _collect_runs(ppo_pat)
     fao_runs = _collect_runs(fao_pat)

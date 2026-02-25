@@ -1,173 +1,158 @@
-# -*- coding: utf-8 -*-
-import re
+from __future__ import annotations
+
+import argparse
 import math
-import pandas as pd
+import re
+from pathlib import Path
+from typing import Dict, List, Tuple
+
 import matplotlib.pyplot as plt
+import pandas as pd
 
-# Use Type 42 (TrueType) font embedding in PDFs for better compatibility with LaTeX editors
-plt.rcParams['pdf.fonttype'] = 42
+plt.rcParams["pdf.fonttype"] = 42
 
-# ----------------------------
-# Config
-# ----------------------------
-MAIN_CSV = "../../outputs/tables_ref/Table10_ablation_mean_std.csv"
-SUPP_CSV = "../../outputs/tables_ref/Table10_ablation_supp_mean_std.csv"
 
-OUT_MAIN = "Fig9_ablation_main.png"
-OUT_SUPP = "Fig9_ablation_supp.png"
-
-# Case display names (edit if your CSV uses different case keys)
-CASE_ORDER = ["wo_Shaping", "wo_Target", "wo_UCB"]  # ablations only
-CASE_LABEL = {
-    "wo_Shaping": "w/o shaping",
-    "wo_Target": "w/o target",
-    "wo_UCB": "w/o UCB",
-}
-
-# If True: convert metrics to "improvement vs Full (higher is better)"
-# e.g., Water saving = -(Δ irrigation), Stress reduction = -(Δ stress), Smoothness gain = -(Δ actionTV)
-USE_IMPROVEMENT_SIGN = False
-
-# ----------------------------
-# Helpers
-# ----------------------------
-def parse_pm(x):
-    """
-    Parse string like '100.346310 ± 6.026138' into (mean, std) floats.
-    """
+def parse_mean_std(x) -> Tuple[float, float]:
     if pd.isna(x):
-        return (float("nan"), float("nan"))
+        return float("nan"), float("nan")
     s = str(x).strip()
-    parts = re.split(r"\s*±\s*", s)
-    if len(parts) == 2:
-        return (float(parts[0].strip()), float(parts[1].strip()))
-    # fallback: try split by '+/-'
+    s = re.sub(r"\s*(卤|±)\s*", "+/-", s)
     parts = re.split(r"\s*\+/-\s*", s)
     if len(parts) == 2:
-        return (float(parts[0].strip()), float(parts[1].strip()))
-    raise ValueError(f"Cannot parse mean±std from: {x}")
+        return float(parts[0]), float(parts[1])
+    nums = re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", s)
+    if len(nums) >= 1:
+        return float(nums[0]), (float(nums[1]) if len(nums) >= 2 else 0.0)
+    raise ValueError(f"cannot parse mean/std: {x}")
 
-def build_mean_std(df, col, case_col="case"):
-    """
-    Return dict: case -> (mean, std)
-    """
-    out = {}
+
+def build_mean_std(df: pd.DataFrame, col: str, case_col: str = "case") -> Dict[str, Tuple[float, float]]:
+    out: Dict[str, Tuple[float, float]] = {}
     for _, row in df.iterrows():
-        case = row[case_col]
-        mean, std = parse_pm(row[col])
-        out[case] = (mean, std)
+        case = str(row[case_col])
+        out[case] = parse_mean_std(row[col])
     return out
 
-def delta_vs_full(ms_dict, metric_name):
-    """
-    Compute delta (ablation - full) and propagated std: sqrt(std_a^2 + std_full^2)
-    """
+
+def delta_vs_full(
+    ms_dict: Dict[str, Tuple[float, float]],
+    *,
+    case_order: List[str],
+    case_label: Dict[str, str],
+    metric_name: str,
+) -> Tuple[List[str], List[float], List[float]]:
     if "Full" not in ms_dict:
-        raise KeyError(f"[{metric_name}] missing 'Full' row in CSV.")
+        raise KeyError(f"[{metric_name}] missing 'Full' row.")
     full_mean, full_std = ms_dict["Full"]
 
     xs, ys, es = [], [], []
-    for c in CASE_ORDER:
+    for c in case_order:
         if c not in ms_dict:
-            raise KeyError(f"[{metric_name}] missing '{c}' row in CSV.")
+            raise KeyError(f"[{metric_name}] missing '{c}' row.")
         m, s = ms_dict[c]
-        d = m - full_mean
-        e = math.sqrt(s * s + full_std * full_std)
-        xs.append(CASE_LABEL.get(c, c))
-        ys.append(d)
-        es.append(e)
+        xs.append(case_label.get(c, c))
+        ys.append(m - full_mean)
+        es.append(math.sqrt(s * s + full_std * full_std))
     return xs, ys, es
 
-def maybe_flip(metric_key, ys, es):
-    """
-    Convert to 'improvement (higher better)' if configured.
-    """
-    if not USE_IMPROVEMENT_SIGN:
-        return ys, es
 
-    # Define which metrics should be negated to make "higher is better"
-    # Tracking (TIR) -> higher better (keep)
-    # Irrigation, StressDays, UnderDays, ActionTV, ActionStd, MAE, RMSE -> lower better (negate)
+def maybe_flip(metric_key: str, ys: List[float], es: List[float], use_improvement_sign: bool):
+    if not use_improvement_sign:
+        return ys, es
     negate = metric_key in {
-        "TotalIrrigation_mm", "StressDays_ref", "UnderDays_ref",
-        "ActionTV", "ActionStd",
-        "MAE_ref_mm", "RMSE_ref_mm"
+        "TotalIrrigation_mm",
+        "StressDays_ref",
+        "UnderDays_ref",
+        "ActionTV",
+        "ActionStd",
+        "MAE_ref_mm",
+        "RMSE_ref_mm",
     }
     if negate:
         ys = [-v for v in ys]
-        # errors unchanged under sign flip
     return ys, es
 
-# ----------------------------
-# Load tables
-# ----------------------------
-main_df = pd.read_csv(MAIN_CSV)
-supp_df = pd.read_csv(SUPP_CSV)
 
-# ----------------------------
-# Main figure (recommended for main text)
-# ----------------------------
-# Metrics from Table10 main:
-#   TIR_ref, TotalIrrigation_mm, StressDays_ref, ActionTV
-metrics_main = [
-    ("TIR_ref",              r"$\Delta$ within-target (pp)",            True),   # convert ratio to percentage points
-    ("TotalIrrigation_mm",   r"$\Delta$ total irrigation (mm)",         False),
-    ("StressDays_ref",       r"$\Delta$ stress days (days)",            False),
-    ("ActionTV",             r"$\Delta$ action TV",                     False),
-]
+def plot_grid(
+    df: pd.DataFrame,
+    metrics: List[Tuple[str, str, bool]],
+    *,
+    case_order: List[str],
+    case_label: Dict[str, str],
+    use_improvement_sign: bool,
+    out_png: Path,
+):
+    fig, axes = plt.subplots(2, 2, figsize=(11, 7))
+    axes = axes.flatten()
 
-fig, axes = plt.subplots(2, 2, figsize=(11, 7))
-axes = axes.flatten()
+    for ax, (key, ylabel, to_pp) in zip(axes, metrics):
+        ms = build_mean_std(df, key)
+        xlab, ys, es = delta_vs_full(ms, case_order=case_order, case_label=case_label, metric_name=key)
+        if to_pp:
+            ys = [v * 100.0 for v in ys]
+            es = [v * 100.0 for v in es]
+        ys, es = maybe_flip(key, ys, es, use_improvement_sign=use_improvement_sign)
 
-for ax, (key, ylabel, to_pp) in zip(axes, metrics_main):
-    ms = build_mean_std(main_df, key)
-    xlab, ys, es = delta_vs_full(ms, key)
+        ax.bar(xlab, ys, yerr=es, capsize=4)
+        ax.axhline(0.0, linewidth=1.0)
+        ax.set_ylabel(ylabel)
+        ax.tick_params(axis="x", rotation=20)
 
-    # Convert ratio deltas to percentage points if needed
-    if to_pp:
-        ys = [v * 100.0 for v in ys]
-        es = [v * 100.0 for v in es]
+    fig.tight_layout()
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    out_pdf = out_png.with_suffix(".pdf")
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
+    fig.savefig(out_pdf, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[OK] Saved: {out_png}")
+    print(f"[OK] Saved: {out_pdf}")
 
-    ys, es = maybe_flip(key, ys, es)
 
-    ax.bar(xlab, ys, yerr=es, capsize=4)
-    ax.axhline(0.0, linewidth=1)
-    ax.set_ylabel(ylabel)
-    ax.tick_params(axis="x", rotation=20)
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--main_csv", type=str, default="outputs/tables_ref/Table10_ablation_mean_std.csv")
+    ap.add_argument("--supp_csv", type=str, default="outputs/tables_ref/Table10_ablation_supp_mean_std.csv")
+    ap.add_argument("--out_main", type=str, default="outputs/figures/Fig9_ablation_main.png")
+    ap.add_argument("--out_supp", type=str, default="outputs/figures/Fig9_ablation_supp.png")
+    ap.add_argument("--use_improvement_sign", action="store_true")
+    args = ap.parse_args()
 
-fig.tight_layout()
-fig.savefig(OUT_MAIN, dpi=300, bbox_inches='tight')
-fig.savefig(OUT_MAIN.replace('.png', '.pdf'), bbox_inches='tight')
-plt.close(fig)
+    main_df = pd.read_csv(args.main_csv)
+    supp_df = pd.read_csv(args.supp_csv)
 
-# ----------------------------
-# Supplementary diagnostics figure (optional)
-# ----------------------------
-# Metrics from Table10 supp:
-#   MAE_ref_mm, RMSE_ref_mm, UnderDays_ref, ActionStd
-metrics_supp = [
-    ("MAE_ref_mm",      r"$\Delta$ MAE (mm)",               False),
-    ("RMSE_ref_mm",     r"$\Delta$ RMSE (mm)",              False),
-    ("UnderDays_ref",   r"$\Delta$ under-days (days)",      False),
-    ("ActionStd",       r"$\Delta$ action std",             False),
-]
+    case_order = ["wo_Shaping", "wo_Target", "wo_UCB"]
+    case_label = {"wo_Shaping": "w/o shaping", "wo_Target": "w/o target", "wo_UCB": "w/o UCB"}
 
-fig, axes = plt.subplots(2, 2, figsize=(11, 7))
-axes = axes.flatten()
+    metrics_main = [
+        ("TIR_ref", r"$\Delta$ within-target (pp)", True),
+        ("TotalIrrigation_mm", r"$\Delta$ total irrigation (mm)", False),
+        ("StressDays_ref", r"$\Delta$ stress days (days)", False),
+        ("ActionTV", r"$\Delta$ action TV", False),
+    ]
+    metrics_supp = [
+        ("MAE_ref_mm", r"$\Delta$ MAE (mm)", False),
+        ("RMSE_ref_mm", r"$\Delta$ RMSE (mm)", False),
+        ("UnderDays_ref", r"$\Delta$ under-days (days)", False),
+        ("ActionStd", r"$\Delta$ action std", False),
+    ]
 
-for ax, (key, ylabel, _) in zip(axes, metrics_supp):
-    ms = build_mean_std(supp_df, key)
-    xlab, ys, es = delta_vs_full(ms, key)
-    ys, es = maybe_flip(key, ys, es)
+    plot_grid(
+        main_df,
+        metrics_main,
+        case_order=case_order,
+        case_label=case_label,
+        use_improvement_sign=bool(args.use_improvement_sign),
+        out_png=Path(args.out_main),
+    )
+    plot_grid(
+        supp_df,
+        metrics_supp,
+        case_order=case_order,
+        case_label=case_label,
+        use_improvement_sign=bool(args.use_improvement_sign),
+        out_png=Path(args.out_supp),
+    )
 
-    ax.bar(xlab, ys, yerr=es, capsize=4)
-    ax.axhline(0.0, linewidth=1)
-    ax.set_ylabel(ylabel)
-    ax.tick_params(axis="x", rotation=20)
 
-fig.tight_layout()
-fig.savefig(OUT_SUPP, dpi=300, bbox_inches='tight')
-fig.savefig(OUT_SUPP.replace('.png', '.pdf'), bbox_inches='tight')
-plt.close(fig)
-
-print("Saved:", OUT_MAIN, "and", OUT_SUPP)
+if __name__ == "__main__":
+    main()
