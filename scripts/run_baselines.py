@@ -192,8 +192,9 @@ def rollout_policy(
 
         # obs (debug)
         row["Dr_obs"] = float(obs_next[0]) if len(obs_next) > 0 else float("nan")
-        row["theta_obs"] = float(obs_next[1]) if len(obs_next) > 1 else float("nan")
-        row["ET0_obs"] = float(obs_next[2]) if len(obs_next) > 2 else float("nan")
+        row["ET0_obs"] = float(obs_next[1]) if len(obs_next) > 1 else float("nan")
+        row["stage_obs"] = float(obs_next[2]) if len(obs_next) > 2 else float("nan")
+        row["I_prev_obs"] = float(obs_next[3]) if len(obs_next) > 3 else float("nan")
 
         # env constants / weather
         row["TAW"] = float(info_next.get("TAW_mm", 0.0))
@@ -240,7 +241,7 @@ def rollout_policy(
         base_cols = [
             "t", "day", "stage_norm",
             "Dr", "theta",
-            "Dr_obs", "theta_obs", "ET0_obs",
+            "Dr_obs", "ET0_obs", "stage_obs", "I_prev_obs",
             "TAW", "RAW",
             "ET0", "ETc",
             "Dr_lo", "Dr_hi",
@@ -391,9 +392,11 @@ def main():
     eval_train_cfg = copy.deepcopy(train_cfg)
     if "ablation" in eval_train_cfg:
         eval_train_cfg["ablation"]["use_ucb_bonus"] = False
+        eval_train_cfg["ablation"]["use_uncertainty_constraint"] = False
         eval_train_cfg["ablation"]["use_robust_training"] = False
     if "reward" in eval_train_cfg:
         eval_train_cfg["reward"]["w_ucb"] = 0.0
+        eval_train_cfg["reward"]["w_uncertainty"] = 0.0
 
     # -------- load noise_config and normalize --------
     noise_cfg: Dict[str, Any] = {}

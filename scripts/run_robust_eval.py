@@ -171,9 +171,11 @@ def main():
             eval_cfg["seed"] = seed
             eval_cfg.setdefault("ablation", {})
             eval_cfg["ablation"]["use_ucb_bonus"] = False
+            eval_cfg["ablation"]["use_uncertainty_constraint"] = False
             eval_cfg["ablation"]["use_robust_training"] = False
             eval_cfg.setdefault("reward", {})
             eval_cfg["reward"]["w_ucb"] = 0.0
+            eval_cfg["reward"]["w_uncertainty"] = 0.0
 
             env = build_env_compat(env_cfg, eval_cfg, seed=seed)
             env = apply_robust_wrappers(env, setting=setting, noise_cfg=noise_cfg, seed=seed)

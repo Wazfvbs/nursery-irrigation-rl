@@ -5,7 +5,7 @@ import math
 @dataclass
 class UCBConfig:
     enabled: bool = True
-    bins: int = 16
+    bins: int = 5
     c: float = 1.0  # UCB coefficient
 
 class ActionBinUCB:
@@ -15,6 +15,11 @@ class ActionBinUCB:
         self.counts = [0] * max(cfg.bins, 1)
 
     def reset(self):
+        # Episode reset intentionally keeps counts, so exploration pressure is
+        # based on training-wide action-bin visits.
+        return
+
+    def reset_counts(self):
         self.counts = [0] * len(self.counts)
 
     def bin_id(self, I: float) -> int:
@@ -28,4 +33,5 @@ class ActionBinUCB:
         if not self.cfg.enabled:
             return 0.0
         n = self.counts[b]
-        return float(self.cfg.c * math.sqrt(math.log(t + 1.0) / (n + 1.0)))
+        total = max(sum(self.counts), int(t), 0)
+        return float(self.cfg.c * math.sqrt(math.log(total + 1.0) / (n + 1.0)))

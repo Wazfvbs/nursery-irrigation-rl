@@ -2,4 +2,5 @@
 use_dynamic_target: true
 use_reward_shaping: true
 use_ucb_bonus: true
+use_uncertainty_constraint: true
 use_robust_training: true

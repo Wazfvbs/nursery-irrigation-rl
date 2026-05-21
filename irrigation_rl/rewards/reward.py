@@ -1,7 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Dict, Tuple
-import math
+
 
 def distance_to_interval(x: float, lo: float, hi: float) -> float:
     if x < lo:
@@ -10,65 +11,120 @@ def distance_to_interval(x: float, lo: float, hi: float) -> float:
         return x - hi
     return 0.0
 
+
 @dataclass
 class RewardConfig:
+    # method_design.md initial weights.
     w_track: float = 1.0
     w_water: float = 0.05
-    w_improve: float = 0.2
-    w_smooth: float = 0.02
-    w_safe: float = 5.0
-    w_ucb: float = 0.0  # set >0 when UCB enabled
+    w_stress: float = 2.0
+    w_over: float = 1.0
+    w_smooth: float = 0.05
+    w_safe: float = 3.0
+    w_ucb: float = 0.10
+    w_uncertainty: float = 0.10
+
+    # Safety violation threshold for deep percolation.
+    dp_max: float = 0.0
+
 
 class RewardFunction:
     def __init__(self, cfg: RewardConfig):
         self.cfg = cfg
-        self.prev_err: float | None = None
         self.prev_I: float = 0.0
 
-    def reset(self):
-        self.prev_err = None
+    def reset(self) -> None:
         self.prev_I = 0.0
 
     def compute(
         self,
+        *,
         Dr: float,
+        Dr_prev: float,
         Dr_lo: float,
         Dr_hi: float,
         I: float,
-        theta: float,
-        theta_wp: float,
+        I_prev: float,
+        Imax: float,
+        TAW: float,
+        RAW: float,
+        DP: float = 0.0,
+        P: float = 0.0,
         ucb_bonus: float = 0.0,
-        unsafe: bool = False
+        uncertainty: float = 0.0,
+        c_uncertain: float = 0.0,
+        unsafe: bool = False,
     ) -> Tuple[float, Dict[str, float]]:
-        err = distance_to_interval(Dr, Dr_lo, Dr_hi)
+        taw = max(float(TAW), 1e-8)
+        imax = max(float(Imax), 1e-8)
+        Dr = float(Dr)
+        Dr_prev = float(Dr_prev)
+        I = float(I)
+        I_prev = float(I_prev)
+        RAW = float(RAW)
+        DP = max(0.0, float(DP))
+        P = max(0.0, float(P))
 
-        r_track = -self.cfg.w_track * err
-        r_water = -self.cfg.w_water * I
-        r_smooth = -self.cfg.w_smooth * abs(I - self.prev_I)
+        e_target_mm = distance_to_interval(Dr, float(Dr_lo), float(Dr_hi))
+        e_target = e_target_mm / taw
+        water_use = I / imax
+        stress = max(0.0, Dr - RAW) / taw
 
-        r_improve = 0.0
-        if self.prev_err is not None:
-            r_improve = self.cfg.w_improve * (self.prev_err - err)
+        over_mm = DP if DP > 0.0 else max(0.0, I + P - Dr_prev)
+        over_irrigation = over_mm / taw
+        smoothness = abs(I - I_prev) / imax
 
-        r_safe = 0.0
-        if theta < theta_wp or unsafe:
-            r_safe = -self.cfg.w_safe
+        safety_violation = 0.0
+        if unsafe:
+            safety_violation += 1.0
+        if Dr > RAW:
+            safety_violation += 1.0
+        if DP > float(self.cfg.dp_max):
+            safety_violation += 1.0
 
-        r_ucb = self.cfg.w_ucb * ucb_bonus
+        r_track = -self.cfg.w_track * e_target
+        r_water = -self.cfg.w_water * water_use
+        r_stress = -self.cfg.w_stress * stress
+        r_over = -self.cfg.w_over * over_irrigation
+        r_smooth = -self.cfg.w_smooth * smoothness
+        r_safe = -self.cfg.w_safe * safety_violation
+        r_ucb = self.cfg.w_ucb * float(ucb_bonus)
+        r_uncertainty = -self.cfg.w_uncertainty * float(c_uncertain)
 
-        reward = r_track + r_water + r_smooth + r_improve + r_safe + r_ucb
+        reward = (
+            r_track
+            + r_water
+            + r_stress
+            + r_over
+            + r_smooth
+            + r_safe
+            + r_ucb
+            + r_uncertainty
+        )
 
-        self.prev_err = err
         self.prev_I = I
 
         terms = {
-            "err": float(err),
+            "e_target": float(e_target),
+            "e_target_mm": float(e_target_mm),
+            "water_use": float(water_use),
+            "stress": float(stress),
+            "over_irrigation": float(over_irrigation),
+            "over_irrigation_mm": float(over_mm),
+            "smoothness": float(smoothness),
+            "safety_violation": float(safety_violation),
+            "ucb_bonus": float(ucb_bonus),
+            "uncertainty": float(uncertainty),
+            "c_uncertain": float(c_uncertain),
             "r_track": float(r_track),
             "r_water": float(r_water),
+            "r_stress": float(r_stress),
+            "r_over": float(r_over),
             "r_smooth": float(r_smooth),
-            "r_improve": float(r_improve),
             "r_safe": float(r_safe),
             "r_ucb": float(r_ucb),
+            "r_uncertainty": float(r_uncertainty),
             "reward": float(reward),
         }
         return float(reward), terms
+

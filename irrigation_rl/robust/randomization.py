@@ -8,7 +8,9 @@ class RandomizationConfig:
     enabled: bool = True
     ET0_mult_min: float = 0.95
     ET0_mult_max: float = 1.05
+    Dr_sigma_mm: float = 0.0
     theta_sigma: float = 0.005
+    ET0_sigma: float = 0.0
     Kc_mult_min: float = 0.95
     Kc_mult_max: float = 1.05
     Zr_mult_min: float = 0.95
@@ -21,7 +23,9 @@ def apply_domain_randomization(params: Dict[str, float], cfg: RandomizationConfi
     out = dict(params)
     # Example multipliers
     out["ET0_mult"] = float(rng.uniform(cfg.ET0_mult_min, cfg.ET0_mult_max))
+    out["Dr_sigma_mm"] = float(cfg.Dr_sigma_mm)
     out["theta_sigma"] = float(cfg.theta_sigma)
+    out["ET0_sigma"] = float(cfg.ET0_sigma)
     out["Kc_mult"] = float(rng.uniform(cfg.Kc_mult_min, cfg.Kc_mult_max))
     out["Zr_mult"] = float(rng.uniform(cfg.Zr_mult_min, cfg.Zr_mult_max))
     return out

@@ -29,9 +29,11 @@ def main():
     eval_cfg = copy.deepcopy(train_cfg)
     eval_cfg.setdefault("ablation", {})
     eval_cfg["ablation"]["use_ucb_bonus"] = False
+    eval_cfg["ablation"]["use_uncertainty_constraint"] = False
     eval_cfg["ablation"]["use_robust_training"] = False
     eval_cfg.setdefault("reward", {})
     eval_cfg["reward"]["w_ucb"] = 0.0
+    eval_cfg["reward"]["w_uncertainty"] = 0.0
     env = build_env(env_cfg, eval_cfg, seed=seed)
 
     model_path = args.model.strip() or os.path.join(train_cfg["paths"]["out_dir"], f"ppo_seed{seed}.zip")

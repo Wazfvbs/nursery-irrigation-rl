@@ -54,21 +54,31 @@ def ablation_cases() -> Dict[str, Dict[str, bool]]:
             "use_dynamic_target": True,
             "use_reward_shaping": True,
             "use_ucb_bonus": True,
+            "use_uncertainty_constraint": True,
         },
         "wo_UCB": {
             "use_dynamic_target": True,
             "use_reward_shaping": True,
             "use_ucb_bonus": False,
+            "use_uncertainty_constraint": True,
+        },
+        "wo_Uncertainty": {
+            "use_dynamic_target": True,
+            "use_reward_shaping": True,
+            "use_ucb_bonus": True,
+            "use_uncertainty_constraint": False,
         },
         "wo_Shaping": {
             "use_dynamic_target": True,
             "use_reward_shaping": False,
             "use_ucb_bonus": True,
+            "use_uncertainty_constraint": True,
         },
         "wo_Target": {
             "use_dynamic_target": False,
             "use_reward_shaping": True,
             "use_ucb_bonus": True,
+            "use_uncertainty_constraint": True,
         },
     }
 
@@ -112,9 +122,11 @@ def main():
             eval_cfg = copy.deepcopy(train_cfg)
             eval_cfg.setdefault("ablation", {})
             eval_cfg["ablation"]["use_ucb_bonus"] = False
+            eval_cfg["ablation"]["use_uncertainty_constraint"] = False
             eval_cfg["ablation"]["use_robust_training"] = False
             eval_cfg.setdefault("reward", {})
             eval_cfg["reward"]["w_ucb"] = 0.0
+            eval_cfg["reward"]["w_uncertainty"] = 0.0
 
             # 2) 写入临时 yaml（保证可复现）
             cfg_path = os.path.join(seed_dir, "train_case.yaml")

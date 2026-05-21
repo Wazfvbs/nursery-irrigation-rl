@@ -68,7 +68,7 @@ class NurseryIrrigationEnv(gym.Env):
     FAO-56 Plant Nursery Irrigation Environment (Dr-based)
 
     Observation:
-      [Dr(mm), theta(m3/m3), ET0(mm/day), stage_norm]
+      [Dr(mm), ET0(mm/day), stage_norm, I_prev(mm/day)]
 
     Action:
       irrigation I_t in [0, a_max] (mm/day)
@@ -105,9 +105,9 @@ class NurseryIrrigationEnv(gym.Env):
         self.RAW: float = 0.0
         self._recompute_soil_params()
 
-        # Observation: Dr, theta, ET0, stage_norm
+        # Observation: Dr, ET0, stage_norm, previous clipped irrigation
         obs_low = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
-        obs_high = np.array([max(self.TAW, 1.0), 1.0, 30.0, 1.0], dtype=np.float32)
+        obs_high = np.array([max(self.TAW, 1.0), 30.0, 1.0, cfg.a_max_mm], dtype=np.float32)
         self.observation_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
 
         # Action: [0, a_max]
@@ -224,9 +224,8 @@ class NurseryIrrigationEnv(gym.Env):
         # Next-state observation uses current self.day (already updated)
         w = self.weather.get_day(self.day)
         ET0 = self._safe_ET0(w)
-        theta = float(Dr_to_theta(self.Dr, self.cfg.theta_fc, self.Zr_eff_m))
         s = stage_norm(self.cfg, self.day)
-        return np.array([self.Dr, theta, ET0, s], dtype=np.float32)
+        return np.array([self.Dr, ET0, s, self.last_I], dtype=np.float32)
 
     def _get_info(self) -> Dict[str, Any]:
         theta = float(Dr_to_theta(self.Dr, self.cfg.theta_fc, self.Zr_eff_m))
@@ -236,6 +235,7 @@ class NurseryIrrigationEnv(gym.Env):
             "day": int(self.day),
             "stage_norm": float(s),  # ✅ RewardWrapper dynamic target uses it
             "Dr_mm": float(self.Dr),
+            "Dr_prev_mm": float(self.prev_Dr),
             "theta": float(theta),
             "TAW_mm": float(self.TAW),
             "RAW_mm": float(self.RAW),
@@ -248,6 +248,7 @@ class NurseryIrrigationEnv(gym.Env):
             "ETc": float(self.last_ETc),
             "Kc": float(self.last_Kc),
             "Ks": float(self.last_Ks),
+            "P": 0.0,
             "DP": float(self.last_DP),
             # action logging
             "I_mm": float(self.last_I),

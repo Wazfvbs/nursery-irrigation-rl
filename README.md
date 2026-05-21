@@ -74,7 +74,7 @@ nursery-irrigation-rl/
 
 - `nursery_env.py`  
   - `NurseryIrrigationEnv`：基于 `Dr` 的 Gym 环境  
-  - observation = `[Dr, theta, ET0, stage_norm]`  
+  - observation = `[Dr, ET0, stage_norm, I_prev]`  
   - action = `I`（灌溉量，mm/day）  
   - ⚠️ 当前版本把 `reward=0` 留给外部注入（便于做 reward ablation）
 
@@ -102,18 +102,21 @@ Table 1 的 `TAW/RAW/Ks/Dr/ET0/ETc` 可逐条对应 `fao56.py` 中函数。
 
 - `target.py`  
   - `DynamicTarget.get_interval()`：返回 `Dr` 的目标区间 `[Dr_lo, Dr_hi]`  
-  - 当前实现为：  
-    - `Dr_lo = low_frac_of_TAW * TAW`  
-    - `Dr_hi = high_frac_of_RAW * RAW`
+  - 当前实现为三阶段动态区间，并按 `ET0` 高需求修正上界：  
+    - early: `[0.20TAW, 0.40TAW]`  
+    - mid: `[0.25TAW, 0.50TAW]`  
+    - late: `[0.30TAW, 0.60TAW]`
 
 - `reward.py`  
   - `RewardFunction.compute()`：将 reward 分解为：  
     - `r_track`：对区间误差惩罚（distance-to-interval）  
     - `r_water`：灌溉量惩罚（节水）  
-    - `r_improve`：误差下降的“进步奖励”  
+    - `r_stress`：超过 `RAW` 的水分胁迫惩罚  
+    - `r_over`：深层渗漏/过量灌溉惩罚  
     - `r_smooth`：动作平滑惩罚  
     - `r_safe`：安全/极端状态惩罚  
     - `r_ucb`：探索 bonus（可开关）
+    - `r_uncertainty`：基于下一步 `Dr` 预测误差的不确定性约束惩罚
 
 ✅ **论文对应**：  
 Section 4.3 “Reward Shaping” 可以完全对齐 `RewardConfig` 和 `terms`。
@@ -136,7 +139,7 @@ Section 4.4 “UCB Exploration” 直接对应这个模块。
 > 目标：鲁棒性必须发生在 **训练阶段（train-time）**，不是只做扰动测试。
 
 - `randomization.py`  
-  - `apply_domain_randomization()`：生成 `ET0_mult / Kc_mult / Zr_mult / theta_sigma` 等扰动参数  
+  - `apply_domain_randomization()`：生成 `ET0_mult / Kc_mult / Zr_mult / Dr_sigma_mm / ET0_sigma` 等扰动参数  
   - 当前为骨架（后续我们会将其真正注入 env/reset）
 
 - `adversarial.py`  
@@ -232,7 +235,7 @@ Section 4.5 “Disturbance-Robust Training”。
 ### 5.3 `configs/noise_train.yaml`（训练扰动）
 - `enabled`：是否启用
 - `weather_bias.ET0_mult_min/max`：ET0 乘性扰动范围
-- `sensor_noise.theta_sigma`：观测噪声（theta）
+- `sensor_noise.Dr_sigma_mm / ET0_sigma`：最小状态下的观测噪声
 - `param_noise.Kc_mult_* / Zr_mult_*`：作物参数/根深扰动
 
 ✅ 论文写法：train-time domain randomization（弱扰动）
@@ -298,14 +301,15 @@ outputs/
 - FAO-56 基本符号函数：TAW/RAW/Ks、theta↔Dr
 - PPO 训练入口（SB3）
 - trajectory 导出
-- UCB bonus（计数 + bonus）
+- UCB bonus（跨 episode 计数 + bonus）
+- UC-PPO 多目标奖励（target/water/stress/over/smooth/safe）
+- 基于下一步 `Dr` 预测误差的 uncertainty penalty
+- train-time domain randomization 注入 env/reset
 
 ### 🟡 待实现（我们下一步要补齐）
 - `calc_ET0_PM()`：完整 Penman–Monteith（支持 sensor-limited fallback）
-- `DP` 深层渗漏（建议从 `theta > theta_fc` 推出）
-- train-time domain randomization 真正注入 env/reset
 - 多 seeds 结果聚合（Table 8/9/10）与作图脚本（Fig.6–11）
-- ablation 与 robust 的开关体系在训练/评估中的真正生效
+- 更细化的 DP/径流模型与真实降雨输入
 
 ---
 

@@ -132,6 +132,9 @@ def evaluate_policy(
 
         # ucb bonus (optional)
         row["ucb_bonus"] = float(info_next.get("ucb_bonus", 0.0))
+        row["uncertainty"] = float(info_next.get("uncertainty", 0.0))
+        row["c_uncertain"] = float(info_next.get("c_uncertain", 0.0))
+        row["pred_next_Dr"] = float(info_next.get("pred_next_Dr", 0.0))
 
         # reward
         row["reward"] = float(reward)
@@ -182,6 +185,7 @@ def evaluate_policy(
         # aux
         "in_ref", "e_mid_ref",
         "ucb_bonus",
+        "uncertainty", "c_uncertain", "pred_next_Dr",
         "reward",
         "terminated", "truncated",
     ]

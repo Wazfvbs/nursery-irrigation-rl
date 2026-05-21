@@ -1,193 +1,227 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
 import gymnasium as gym
 import numpy as np
 
-from irrigation_rl.rewards.reward import RewardFunction, RewardConfig
-from irrigation_rl.rewards.target import DynamicTarget, TargetConfig
 from irrigation_rl.exploration.ucb_bonus import ActionBinUCB, UCBConfig
+from irrigation_rl.rewards.reward import RewardConfig, RewardFunction, distance_to_interval
+from irrigation_rl.rewards.target import DynamicTarget, TargetConfig
+from irrigation_rl.uncertainty import UncertaintyConfig, UncertaintyEstimator
 
 
 @dataclass
 class WrapperFlags:
-    """用于消融实验的开关（对应 configs/train.yaml 的 ablation 字段）"""
+    """Ablation switches wired from configs/train.yaml."""
+
     use_dynamic_target: bool = True
     use_reward_shaping: bool = True
     use_ucb_bonus: bool = True
+    use_uncertainty_constraint: bool = True
 
-    # ✅ 固定目标区间（用于 w/o_Target），用 TAW 的比例定义，确保与 dynamic 不等价
     fixed_lo_frac_TAW: float = 0.15
     fixed_hi_frac_TAW: float = 0.35
 
 
-
 class RewardWrapper(gym.Wrapper):
     """
-    RewardWrapper：把 reward / target / UCB 完整封装进 wrapper，
-    让 env 保持“纯物理模型”，训练阶段 reward 不为 0。
+    Adds UC-PPO reward terms to the pure FAO-56 environment.
 
-    - env.step() 内部仍返回 reward=0（物理层）
-    - wrapper.step() 计算 reward，并把 reward_terms 写入 info
+    Base env reward remains zero; this wrapper computes the training signal:
+    multi-objective reward + UCB bonus - uncertainty constraint.
     """
 
     def __init__(
-            self,
-            env: gym.Env,
-            reward_cfg: Optional[RewardConfig] = None,
-            target_cfg: Optional[TargetConfig] = None,
-            ucb_cfg: Optional[UCBConfig] = None,
-            flags: Optional[WrapperFlags] = None,
+        self,
+        env: gym.Env,
+        reward_cfg: Optional[RewardConfig] = None,
+        target_cfg: Optional[TargetConfig] = None,
+        ucb_cfg: Optional[UCBConfig] = None,
+        uncertainty_cfg: Optional[UncertaintyConfig] = None,
+        flags: Optional[WrapperFlags] = None,
+        seed: int = 0,
     ):
         super().__init__(env)
 
         self.flags = flags or WrapperFlags()
-
-        # reward config（可在这里统一调参）
         self.reward_cfg = reward_cfg or RewardConfig()
         self.target_cfg = target_cfg or TargetConfig()
         self.ucb_cfg = ucb_cfg or UCBConfig(enabled=self.flags.use_ucb_bonus)
+        self.uncertainty_cfg = uncertainty_cfg or UncertaintyConfig(enabled=True)
 
-        # 如果不启用 reward shaping：我们保留核心目标（跟踪+节水），去掉 shaping 项
-        if not self.flags.use_reward_shaping:
-            self.reward_cfg.w_improve = 0.0
-            self.reward_cfg.w_smooth = 0.0
-            self.reward_cfg.w_safe = 0.0
-
-        # 如果不启用 UCB：w_ucb 归零即可
         if not self.flags.use_ucb_bonus:
             self.reward_cfg.w_ucb = 0.0
             self.ucb_cfg.enabled = False
+        if not self.flags.use_uncertainty_constraint:
+            self.reward_cfg.w_uncertainty = 0.0
 
         self.reward_fn = RewardFunction(self.reward_cfg)
         self.target = DynamicTarget(self.target_cfg)
 
-        # ucb 根据动作离散 bins 来计数
-        a_max = float(getattr(self.env, "cfg", None).a_max_mm) if hasattr(self.env, "cfg") else 1.0
+        a_max = float(getattr(getattr(self.env, "cfg", None), "a_max_mm", 1.0))
         self.ucb = ActionBinUCB(self.ucb_cfg, a_max=a_max)
 
-        # internal time step for ucb bonus
+        obs_dim = int(np.prod(self.env.observation_space.shape))
+        action_dim = int(np.prod(self.env.action_space.shape))
+        self.uncertainty = UncertaintyEstimator(
+            state_dim=obs_dim,
+            action_dim=action_dim,
+            cfg=self.uncertainty_cfg,
+            seed=seed,
+        )
+
         self.t = 0
+        self._last_obs: Optional[np.ndarray] = None
+        self._last_info: Dict[str, Any] = {}
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         self.reward_fn.reset()
-        self.ucb.reset()
         self.t = 0
+        self._last_obs = np.asarray(obs, dtype=np.float32).copy()
+        self._last_info = dict(info)
 
-        # reset 时把 train/ref 两套 interval 都写入 info（方便 debug/画图/统一评估口径）
-        Dr_lo_train, Dr_hi_train = self._get_train_interval(info)
-        Dr_lo_ref, Dr_hi_ref = self._get_ref_interval(info)
+        Dr_lo_train, Dr_hi_train = self._get_train_interval(info, obs)
+        Dr_lo_ref, Dr_hi_ref = self._get_ref_interval(info, obs)
+        self._write_interval_info(info, Dr_lo_train, Dr_hi_train, Dr_lo_ref, Dr_hi_ref)
+        return obs, info
 
-        # backward compatible (old code expects Dr_lo/Dr_hi)
+    def step(self, action):
+        state_before = None if self._last_obs is None else self._last_obs.copy()
+        info_before = dict(self._last_info)
+
+        obs_next, _, terminated, truncated, info = self.env.step(action)
+        obs_next_arr = np.asarray(obs_next, dtype=np.float32).copy()
+
+        Dr = float(info.get("Dr_mm", 0.0))
+        Dr_prev = float(info.get("Dr_prev_mm", info_before.get("Dr_mm", Dr)))
+        theta = float(info.get("theta", 0.0))
+        TAW = float(info.get("TAW_mm", getattr(self.env, "TAW", 1.0)))
+        RAW = float(info.get("RAW_mm", getattr(self.env, "RAW", 1.0)))
+        DP = float(info.get("DP", 0.0))
+        P = float(info.get("P", 0.0))
+
+        if "I_mm" in info:
+            I = float(info["I_mm"])
+        else:
+            I = float(np.asarray(action).reshape(-1)[0])
+        I_prev = float(state_before[3]) if state_before is not None and state_before.size >= 4 else 0.0
+        Imax = float(getattr(getattr(self.env, "cfg", None), "a_max_mm", max(abs(I), 1.0)))
+
+        # UC-PPO uses the target generated from s_t.
+        target_info = info_before if info_before else info
+        target_obs = state_before if state_before is not None else obs_next_arr
+        Dr_lo_train, Dr_hi_train = self._get_train_interval(target_info, target_obs)
+        Dr_lo_ref, Dr_hi_ref = self._get_ref_interval(target_info, target_obs)
+        Dr_mid_ref = 0.5 * (Dr_lo_ref + Dr_hi_ref)
+
+        b = self.ucb.bin_id(I)
+        bonus = self.ucb.bonus(self.t, b)
+        self.ucb.update(b)
+
+        uncertainty = 0.0
+        pred_next_dr = 0.0
+        predictor_loss = 0.0
+        if state_before is not None and self.uncertainty_cfg.enabled:
+            action_arr = np.array([I], dtype=np.float32)
+            uncertainty, pred_next_dr = self.uncertainty.uncertainty(state_before, action_arr, Dr, TAW)
+            predictor_loss = self.uncertainty.update(state_before, action_arr, Dr)
+        c_uncertain = float(uncertainty) * (abs(I) / max(Imax, 1e-8))
+
+        theta_wp = float(getattr(getattr(self.env, "cfg", None), "theta_wp", 0.0))
+        unsafe = theta < theta_wp
+
+        if not self.flags.use_reward_shaping:
+            err = distance_to_interval(Dr, Dr_lo_train, Dr_hi_train)
+            violation = 1.0 if err > 0.0 else 0.0
+            r_track = -self.reward_cfg.w_track * violation
+            r_water = -self.reward_cfg.w_water * (I / max(Imax, 1e-8))
+            r_safe = -self.reward_cfg.w_safe if unsafe else 0.0
+            r_ucb = self.reward_cfg.w_ucb * bonus
+            r_uncertainty = -self.reward_cfg.w_uncertainty * c_uncertain
+            reward = r_track + r_water + r_safe + r_ucb + r_uncertainty
+            terms = {
+                "mode": "sparse",
+                "e_target": float(err / max(TAW, 1e-8)),
+                "e_target_mm": float(err),
+                "water_use": float(I / max(Imax, 1e-8)),
+                "stress": float(max(0.0, Dr - RAW) / max(TAW, 1e-8)),
+                "over_irrigation": float(DP / max(TAW, 1e-8)),
+                "smoothness": float(abs(I - I_prev) / max(Imax, 1e-8)),
+                "safety_violation": float(violation),
+                "ucb_bonus": float(bonus),
+                "uncertainty": float(uncertainty),
+                "c_uncertain": float(c_uncertain),
+                "r_track": float(r_track),
+                "r_water": float(r_water),
+                "r_safe": float(r_safe),
+                "r_ucb": float(r_ucb),
+                "r_uncertainty": float(r_uncertainty),
+                "reward": float(reward),
+            }
+        else:
+            reward, terms = self.reward_fn.compute(
+                Dr=Dr,
+                Dr_prev=Dr_prev,
+                Dr_lo=Dr_lo_train,
+                Dr_hi=Dr_hi_train,
+                I=I,
+                I_prev=I_prev,
+                Imax=Imax,
+                TAW=TAW,
+                RAW=RAW,
+                DP=DP,
+                P=P,
+                ucb_bonus=bonus,
+                uncertainty=uncertainty,
+                c_uncertain=c_uncertain,
+                unsafe=unsafe,
+            )
+
+        terms["pred_next_Dr"] = float(pred_next_dr)
+        terms["uncertainty_loss"] = float(predictor_loss)
+
+        self._write_interval_info(info, Dr_lo_train, Dr_hi_train, Dr_lo_ref, Dr_hi_ref)
+        info["Dr_mid_ref"] = float(Dr_mid_ref)
+        info["ucb_bonus"] = float(bonus)
+        info["ucb_bin"] = int(b)
+        info["ucb_count"] = int(self.ucb.counts[b])
+        info["uncertainty"] = float(uncertainty)
+        info["c_uncertain"] = float(c_uncertain)
+        info["pred_next_Dr"] = float(pred_next_dr)
+        info["reward_terms"] = terms
+
+        self.t += 1
+        self._last_obs = obs_next_arr
+        self._last_info = dict(info)
+        return obs_next, float(reward), terminated, truncated, info
+
+    def _write_interval_info(
+        self,
+        info: Dict[str, Any],
+        Dr_lo_train: float,
+        Dr_hi_train: float,
+        Dr_lo_ref: float,
+        Dr_hi_ref: float,
+    ) -> None:
         info["Dr_lo"] = float(Dr_lo_train)
         info["Dr_hi"] = float(Dr_hi_train)
-
         info["Dr_lo_train"] = float(Dr_lo_train)
         info["Dr_hi_train"] = float(Dr_hi_train)
         info["Dr_lo_ref"] = float(Dr_lo_ref)
         info["Dr_hi_ref"] = float(Dr_hi_ref)
         info["Dr_mid_ref"] = float(0.5 * (Dr_lo_ref + Dr_hi_ref))
-        return obs, info
 
-    def step(self, action):
-        obs, _, terminated, truncated, info = self.env.step(action)
-
-        # 取 env 的状态变量
-        Dr = float(info.get("Dr_mm", 0.0))
-        theta = float(info.get("theta", 0.0))
-
-        # 灌溉动作（用 env 里已经 clip 后的 I_mm 最稳）
-        if "I_mm" in info:
-            I = float(info["I_mm"])
-        else:
-            I = float(np.asarray(action).reshape(-1)[0])
-
-        # train interval: used for reward shaping / constraints (ablation affects this)
-        Dr_lo_train, Dr_hi_train = self._get_train_interval(info)
-        # reference interval: ALWAYS the Full(dynamic) interval (paper metrics use this)
-        Dr_lo_ref, Dr_hi_ref = self._get_ref_interval(info)
-        Dr_mid_ref = 0.5 * (Dr_lo_ref + Dr_hi_ref)
-
-        # UCB bonus
-        b = self.ucb.bin_id(I)
-        bonus = self.ucb.bonus(self.t, b)
-        self.ucb.update(b)
-
-        # 安全判定（论文里可写 as safety constraint / termination condition）
-        theta_wp = float(getattr(getattr(self.env, "cfg", None), "theta_wp", 0.0))
-        unsafe = theta < theta_wp
-
-        # ==============================
-        # ✅ Sparse reward for w/o_Shaping
-        # ==============================
-        if not self.flags.use_reward_shaping:
-            # 越界判定（sparse）
-            if Dr < Dr_lo_train:
-                err = Dr_lo_train - Dr
-            elif Dr > Dr_hi_train:
-                err = Dr - Dr_hi_train
-            else:
-                err = 0.0
-
-            violation = 1.0 if err > 0 else 0.0
-
-            # 水量惩罚（防止疯狂浇水作弊）
-            # 这里保持你的 w_water 仍有效
-            reward = - self.reward_cfg.w_track * violation - self.reward_cfg.w_water * float(I)
-
-            # 安全惩罚（保持 safety 仍能约束极端缺水）
-            if unsafe:
-                reward -= self.reward_cfg.w_safe
-
-            terms = {
-                "mode": "sparse",
-                "err": float(err),
-                "violation": float(violation),
-                "I": float(I),
-                "unsafe": float(unsafe),
-                "ucb_bonus": float(bonus),
-            }
-
-        else:
-            # ✅ Full：dense reward（连续误差）
-            reward, terms = self.reward_fn.compute(
-                Dr=Dr,
-                Dr_lo=Dr_lo_train,
-                Dr_hi=Dr_hi_train,
-                I=I,
-                theta=theta,
-                theta_wp=theta_wp,
-                ucb_bonus=bonus,
-                unsafe=unsafe,
-            )
-
-        # 把关键内容写进 info，方便 trajectory.csv / fig / table 直接生成
-        # backward compatible (train band)
-        info["Dr_lo"] = float(Dr_lo_train)
-        info["Dr_hi"] = float(Dr_hi_train)
-
-        # explicit train/ref fields
-        info["Dr_lo_train"] = float(Dr_lo_train)
-        info["Dr_hi_train"] = float(Dr_hi_train)
-        info["Dr_lo_ref"] = float(Dr_lo_ref)
-        info["Dr_hi_ref"] = float(Dr_hi_ref)
-        info["Dr_mid_ref"] = float(Dr_mid_ref)
-        info["ucb_bonus"] = float(bonus)
-        info["reward_terms"] = terms
-
-        self.t += 1
-        return obs, float(reward), terminated, truncated, info
-
-    def _get_train_interval(self, info: Dict[str, Any]) -> Tuple[float, float]:
-        """Interval used by the reward function (ablation affects this)."""
-        TAW = float(getattr(self.env, "TAW", 1.0))
-        RAW = float(getattr(self.env, "RAW", 1.0))
-        s = float(info.get("stage_norm", 0.5))
-
+    def _get_train_interval(self, info: Dict[str, Any], obs=None) -> Tuple[float, float]:
+        TAW = float(info.get("TAW_mm", getattr(self.env, "TAW", 1.0)))
         if self.flags.use_dynamic_target:
-            return self.target.get_interval(TAW=TAW, RAW=RAW, stage_norm=s)
+            return self.target.get_interval(
+                stage_norm=self._stage_norm(info, obs),
+                et0=self._et0(info, obs),
+                taw=TAW,
+            )
 
         low = self.flags.fixed_lo_frac_TAW * TAW
         high = self.flags.fixed_hi_frac_TAW * TAW
@@ -195,11 +229,27 @@ class RewardWrapper(gym.Wrapper):
             high = low
         return float(low), float(high)
 
-    def _get_ref_interval(self, info: Dict[str, Any]) -> Tuple[float, float]:
-        """Reference interval used for ALL paper metrics (always Full dynamic target)."""
-        TAW = float(getattr(self.env, "TAW", 1.0))
-        RAW = float(getattr(self.env, "RAW", 1.0))
-        s = float(info.get("stage_norm", 0.5))
-        return self.target.get_interval(TAW=TAW, RAW=RAW, stage_norm=s)
+    def _get_ref_interval(self, info: Dict[str, Any], obs=None) -> Tuple[float, float]:
+        TAW = float(info.get("TAW_mm", getattr(self.env, "TAW", 1.0)))
+        return self.target.get_interval(
+            stage_norm=self._stage_norm(info, obs),
+            et0=self._et0(info, obs),
+            taw=TAW,
+        )
 
+    @staticmethod
+    def _stage_norm(info: Dict[str, Any], obs=None) -> float:
+        if obs is not None:
+            arr = np.asarray(obs).reshape(-1)
+            if arr.size >= 3:
+                return float(arr[2])
+        return float(info.get("stage_norm", 0.5))
+
+    @staticmethod
+    def _et0(info: Dict[str, Any], obs=None) -> float:
+        if obs is not None:
+            arr = np.asarray(obs).reshape(-1)
+            if arr.size >= 2:
+                return float(arr[1])
+        return float(info.get("ET0", info.get("ET0_obs", 0.0)))
 

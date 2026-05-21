@@ -188,36 +188,34 @@ def build_dynamic_target_schedule() -> Tuple[Dict, List[Dict], str]:
             "condition": "stage_norm < 0.33",
             "logged_day_range": "1-29",
             "switch_day_logged": 1,
-            "low_frac_TAW": 0.15,
-            "high_frac_RAW": 0.70,
+            "low_frac_TAW": 0.20,
+            "high_frac_TAW": 0.40,
         },
         {
             "stage_name": "mid",
             "condition": "0.33 <= stage_norm < 0.66",
             "logged_day_range": "30-58",
             "switch_day_logged": 30,
-            "low_frac_TAW": 0.20,
-            "high_frac_RAW": 0.90,
+            "low_frac_TAW": 0.25,
+            "high_frac_TAW": 0.50,
         },
         {
             "stage_name": "late",
             "condition": "stage_norm >= 0.66",
             "logged_day_range": "59-90",
             "switch_day_logged": 59,
-            "low_frac_TAW": 0.25,
-            "high_frac_RAW": 1.00,
+            "low_frac_TAW": 0.30,
+            "high_frac_TAW": 0.60,
         },
     ]
 
     for stage in dynamic_stages:
         lo_mm = stage["low_frac_TAW"] * taw_mm
-        hi_mm = stage["high_frac_RAW"] * raw_mm
-        delta_mm = raw_mm - lo_mm
+        hi_mm = stage["high_frac_TAW"] * taw_mm
         stage["Dr_lo_mm"] = round(lo_mm, 6)
         stage["Dr_hi_mm"] = round(max(lo_mm, hi_mm), 6)
-        stage["delta_equiv_mm"] = round(delta_mm, 6)
-        stage["paper_equiv_lower"] = f"D_lo = RAW - {delta_mm:.1f}"
-        stage["paper_equiv_upper"] = f"D_hi = {stage['high_frac_RAW']:.2f} * RAW"
+        stage["paper_equiv_lower"] = f"D_lo = {stage['low_frac_TAW']:.2f} * TAW"
+        stage["paper_equiv_upper"] = f"D_hi = {stage['high_frac_TAW']:.2f} * TAW"
 
     kc_schedule = [
         {
@@ -250,13 +248,12 @@ def build_dynamic_target_schedule() -> Tuple[Dict, List[Dict], str]:
             "stage_ini_days/stage_mid_days/stage_end_days = 20/50/20."
         ),
         (
-            "The code does not store an explicit delta_t variable for the dynamic target. "
-            "The actual implementation is lo = alpha_g * TAW and hi = beta_g * RAW, with "
-            "delta_t only derivable algebraically as RAW - lo."
+            "The dynamic target now follows method_design.md directly: both lower and upper "
+            "bounds are fractions of TAW, with an ET0-based correction to the upper bound."
         ),
         (
-            "Because nominal TAW and RAW are constant, the paper shorthand delta_t = Delta^(g) "
-            "is valid only as a derived reparameterization of the coded logic, not as the literal code path."
+            "ET0 correction means the logged high bound can be lower than the base stage high bound "
+            "when ET0 exceeds the configured or estimated mean ET0."
         ),
     ]
 
@@ -287,14 +284,14 @@ def build_dynamic_target_schedule() -> Tuple[Dict, List[Dict], str]:
                 SOURCE_REFS["build_env"],
             ],
             "logic": (
-                "RewardWrapper always calls DynamicTarget.get_interval(TAW, RAW, stage_norm). "
-                "TargetConfig is instantiated with dataclass defaults; train.yaml does not override it."
+                "RewardWrapper calls DynamicTarget.get_interval(stage_norm, et0, taw). "
+                "TargetConfig may be overridden by configs/train.yaml target fields."
             ),
             "paper_simplification": {
-                "delta_t_equals_Delta_g_valid_for_nominal": True,
+                "target_matches_method_design": True,
                 "reason": (
-                    "In nominal experiments TAW=54 mm and RAW=27 mm are constant, so lo = alpha_g * TAW "
-                    "is equivalent to lo = RAW - Delta^(g), where Delta^(g) = RAW - alpha_g * TAW."
+                    "The nominal target uses stage fractions [0.20,0.40], [0.25,0.50], "
+                    "and [0.30,0.60] of TAW, then applies the ET0 high-bound correction."
                 ),
             },
             "stages": dynamic_stages,
@@ -325,10 +322,9 @@ def build_dynamic_target_schedule() -> Tuple[Dict, List[Dict], str]:
                 "logged_day_range": stage["logged_day_range"],
                 "condition": stage["condition"],
                 "low_frac_TAW": stage["low_frac_TAW"],
-                "high_frac_RAW": stage["high_frac_RAW"],
+                "high_frac_TAW": stage["high_frac_TAW"],
                 "Dr_lo_mm": stage["Dr_lo_mm"],
                 "Dr_hi_mm": stage["Dr_hi_mm"],
-                "delta_equiv_mm": stage["delta_equiv_mm"],
                 "Kc": "",
                 "TAW_mm": taw_mm,
                 "RAW_mm": raw_mm,
@@ -350,10 +346,9 @@ def build_dynamic_target_schedule() -> Tuple[Dict, List[Dict], str]:
                 "logged_day_range": stage["logged_day_range"],
                 "condition": stage["condition"],
                 "low_frac_TAW": "",
-                "high_frac_RAW": "",
+                "high_frac_TAW": "",
                 "Dr_lo_mm": "",
                 "Dr_hi_mm": "",
-                "delta_equiv_mm": "",
                 "Kc": stage["Kc"],
                 "TAW_mm": taw_mm,
                 "RAW_mm": raw_mm,
@@ -373,10 +368,9 @@ def build_dynamic_target_schedule() -> Tuple[Dict, List[Dict], str]:
         "",
         "## Actual implementation",
         "",
-        "- Dynamic target is hardcoded in `irrigation_rl/rewards/target.py` (`TargetConfig`, lines 6-20; `DynamicTarget.get_interval`, lines 26-40).",
-        "- `RewardWrapper` uses that target for both training-time dynamic target and all paper reference metrics (`irrigation_rl/envs/reward_wrapper.py`, lines 183-203).",
-        "- Nominal PPO build path does not override `TargetConfig`; `build_env(...)` passes only `RewardWrapper(..., reward_cfg=..., flags=...)` (`irrigation_rl/train/ppo_train.py`, lines 53-107).",
-        "- Therefore the nominal experiments use the dataclass defaults exactly as coded.",
+        "- Dynamic target is implemented in `irrigation_rl/rewards/target.py` (`TargetConfig`; `DynamicTarget.get_interval`).",
+        "- `RewardWrapper` uses that target for both training-time dynamic target and all paper reference metrics.",
+        "- `build_env(...)` reads optional `target` fields from `configs/train.yaml`, including `lambda_et`, `min_width`, and `et0_mean`.",
         "",
         "## Actual nominal settings",
         "",
@@ -390,9 +384,8 @@ def build_dynamic_target_schedule() -> Tuple[Dict, List[Dict], str]:
         "- Growth stage 1: logged days 1-29 (`stage_norm < 0.33`).",
         "- Growth stage 2: logged days 30-58 (`0.33 <= stage_norm < 0.66`).",
         "- Growth stage 3: logged days 59-90 (`stage_norm >= 0.66`).",
-        f"- Lower bound values are `D_lo = [8.1, 10.8, 13.5]` mm = `[0.15, 0.20, 0.25] * TAW`.",
-        f"- Upper bound values are `D_hi = [18.9, 24.3, 27.0]` mm = `[0.70, 0.90, 1.00] * RAW`.",
-        f"- Under the paper notation `D_lo,t = max(0, RAW(t) - Delta_t)`, the nominal-equivalent constants are `Delta^(1)={dynamic_stages[0]['delta_equiv_mm']:.1f}` mm, `Delta^(2)={dynamic_stages[1]['delta_equiv_mm']:.1f}` mm, `Delta^(3)={dynamic_stages[2]['delta_equiv_mm']:.1f}` mm.",
+        f"- Base lower bounds are `D_lo = [10.8, 13.5, 16.2]` mm = `[0.20, 0.25, 0.30] * TAW`.",
+        f"- Base upper bounds are `D_hi = [21.6, 27.0, 32.4]` mm = `[0.40, 0.50, 0.60] * TAW`, before ET0 correction.",
         "",
         "## Trajectory validation",
         "",
@@ -402,7 +395,7 @@ def build_dynamic_target_schedule() -> Tuple[Dict, List[Dict], str]:
         "",
         "- The dynamic target stage split is not the same as the crop Kc stage split.",
         "- If the paper currently states that the target stages are 1-20 / 21-70 / 71-90, that is inconsistent with the code.",
-        "- The code does not literally define a `delta_t` variable for the dynamic target. It defines `lo = alpha_g * TAW`; the `Delta^(g)` values above are an exact nominal reparameterization, not the literal source variable.",
+        "- The code no longer uses the older RAW-based high-bound parameterization.",
         "",
         "## Paper-ready text",
         "",
@@ -410,10 +403,10 @@ def build_dynamic_target_schedule() -> Tuple[Dict, List[Dict], str]:
             "The actual nominal dynamic target used in the experiments is implemented as a three-stage "
             "hardcoded schedule in `irrigation_rl/rewards/target.py`. In logged rollout days, the target "
             "band uses stages 1-29, 30-58, and 59-90, selected by `stage_norm < 0.33`, `0.33 <= stage_norm < 0.66`, "
-            "and `stage_norm >= 0.66`, respectively. The corresponding lower bounds are `D_lo = [8.1, 10.8, 13.5]` mm, "
-            "which are equivalent to `Delta^(1)=18.9` mm, `Delta^(2)=16.2` mm, and `Delta^(3)=13.5` mm under the paper "
-            "notation `D_lo,t = max(0, RAW(t) - Delta_t)`. The upper bounds are `D_hi = [18.9, 24.3, 27.0]` mm, i.e. "
-            "`[0.70, 0.90, 1.00] * RAW`. The nominal water-balance constants are `TAW=54.0` mm and `RAW=27.0` mm "
+            "and `stage_norm >= 0.66`, respectively. The corresponding base lower bounds are "
+            "`D_lo = [10.8, 13.5, 16.2]` mm and the base upper bounds are `D_hi = [21.6, 27.0, 32.4]` mm, "
+            "i.e. `[0.20, 0.25, 0.30] * TAW` and `[0.40, 0.50, 0.60] * TAW`. The upper bound is then reduced "
+            "when ET0 exceeds the configured or estimated mean ET0. The nominal water-balance constants are `TAW=54.0` mm and `RAW=27.0` mm "
             "with constant `p=0.50`, while the crop-coefficient schedule is `Kc = 0.50` for days 1-20, `1.00` for "
             "days 21-70, and `0.80` for days 71-90. These are the actual nominal settings used in the experiments."
         ),
@@ -680,10 +673,9 @@ def main() -> None:
             "logged_day_range",
             "condition",
             "low_frac_TAW",
-            "high_frac_RAW",
+            "high_frac_TAW",
             "Dr_lo_mm",
             "Dr_hi_mm",
-            "delta_equiv_mm",
             "Kc",
             "TAW_mm",
             "RAW_mm",

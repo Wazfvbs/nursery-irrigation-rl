@@ -4,7 +4,9 @@ weather_bias:
   ET0_mult_min: 0.95
   ET0_mult_max: 1.05
 sensor_noise:
+  Dr_sigma_mm: 0.5
   theta_sigma: 0.005
+  ET0_sigma: 0.0
 param_noise:
   Kc_mult_min: 0.95
   Kc_mult_max: 1.05

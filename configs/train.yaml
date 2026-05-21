@@ -16,6 +16,7 @@ ablation:
   use_dynamic_target: true
   use_reward_shaping: true
   use_ucb_bonus: true
+  use_uncertainty_constraint: true
   use_robust_training: true
 
 paths:
@@ -25,10 +26,35 @@ paths:
 reward:
   w_track: 1.0
   w_water: 0.05
-  w_improve: 0.2
-  w_smooth: 0.02
-  w_safe: 5.0
+  w_stress: 2.0
+  w_over: 1.0
+  w_smooth: 0.05
+  w_safe: 3.0
   w_ucb: 0.1
+  w_uncertainty: 0.1
+  dp_max: 0.0
+
+target:
+  early_low_frac_TAW: 0.20
+  early_high_frac_TAW: 0.40
+  mid_low_frac_TAW: 0.25
+  mid_high_frac_TAW: 0.50
+  late_low_frac_TAW: 0.30
+  late_high_frac_TAW: 0.60
+  lambda_et: 0.10
+  min_width: 5.0
+  et0_mean:
+
+ucb:
+  enabled: true
+  bins: 5
+  c: 1.0
+
+uncertainty:
+  enabled: true
+  learning_rate: 0.001
+  hidden_dim: 64
+  update_epochs: 1
 
 baselines:
   calendar:

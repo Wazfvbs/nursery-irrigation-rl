@@ -206,9 +206,11 @@ def main():
         eval_cfg = copy.deepcopy(base_cfg)
         eval_cfg.setdefault("ablation", {})
         eval_cfg["ablation"]["use_ucb_bonus"] = False
+        eval_cfg["ablation"]["use_uncertainty_constraint"] = False
         eval_cfg["ablation"]["use_robust_training"] = False
         eval_cfg.setdefault("reward", {})
         eval_cfg["reward"]["w_ucb"] = 0.0
+        eval_cfg["reward"]["w_uncertainty"] = 0.0
 
         env = build_env_compat(env_cfg, eval_cfg, seed=seed)
         env = ObsNoiseWrapper(env, noise_cfg, seed=seed)
@@ -248,15 +250,18 @@ def main():
         eval_cfg = copy.deepcopy(base_cfg)
         eval_cfg.setdefault("ablation", {})
         eval_cfg["ablation"]["use_ucb_bonus"] = False
+        eval_cfg["ablation"]["use_uncertainty_constraint"] = False
         eval_cfg["ablation"]["use_robust_training"] = False
         eval_cfg.setdefault("reward", {})
         eval_cfg["reward"]["w_ucb"] = 0.0
+        eval_cfg["reward"]["w_uncertainty"] = 0.0
 
         env = build_env_compat(env_cfg, eval_cfg, seed=seed)
         env = ObsNoiseWrapper(env, noise_cfg, seed=seed)
 
-        RAW = float(getattr(env, "RAW", 1.0))
-        a_max = float(getattr(getattr(env, "cfg", None), "a_max_mm", 15.0))
+        base_env = env.unwrapped
+        RAW = float(getattr(base_env, "RAW", 1.0))
+        a_max = float(getattr(getattr(base_env, "cfg", None), "a_max_mm", 15.0))
 
         # Threshold：Dr > (0.9*RAW) 就灌溉
         thr = ThresholdPolicy(Dr_threshold=0.9 * RAW, irrigation_mm=a_max)
