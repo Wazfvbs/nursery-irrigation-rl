@@ -200,7 +200,7 @@ def main():
                     help="Table9_robust_noise_mean_std.csv (Noise)")
     ap.add_argument("--methods", type=str, default="PPO,Threshold,FAORule",
                     help="comma-separated raw method names")
-    ap.add_argument("--out", type=str, default="figures/fig8_robustness_final_v2.png")
+    ap.add_argument("--out", type=str, default="output/figures/fig8_robustness_final_v2.png")
     args = ap.parse_args()
 
     methods_raw = [m.strip() for m in args.methods.split(",") if m.strip()]

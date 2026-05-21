@@ -12,18 +12,18 @@ import matplotlib.pyplot as plt
 # -------------------------
 def parse_mean_std(x):
     """
-    Parse 'mean ± std' -> (mean, std)
+    Parse 'mean +/- std' -> (mean, std)
     Also supports numeric input.
     """
     if isinstance(x, (int, float, np.floating)):
         return float(x), 0.0
     s = str(x).strip()
-    parts = re.split(r"\s*±\s*", s)
-    mean = float(parts[0])
-    std = float(parts[1]) if len(parts) > 1 else 0.0
-    return mean, std
-
-
+    nums = re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", s)
+    if len(nums) >= 2:
+        return float(nums[0]), float(nums[1])
+    if len(nums) >= 1:
+        return float(nums[0]), 0.0
+    return float("nan"), float("nan")
 def set_sci_style():
     # clean, submission-friendly style
     plt.rcParams.update({
@@ -65,12 +65,21 @@ def pick_row(df, method_name):
         s = str(df.loc[i, "method"]).lower().replace(" ", "")
         if s == m:
             return df.loc[i]
-    # allow 'FAORule' vs 'FAO Rule'
+    # allow small naming variants
     for i in range(len(df)):
         s = str(df.loc[i, "method"]).lower().replace(" ", "")
         if m in s or s in m:
             return df.loc[i]
     raise ValueError(f"Cannot find method '{method_name}' in df['method'].")
+
+
+def pick_row_from_candidates(df, candidates):
+    for name in candidates:
+        try:
+            return pick_row(df, name)
+        except ValueError:
+            continue
+    raise ValueError(f"Cannot find any method in candidates={candidates}")
 
 
 # -------------------------
@@ -129,7 +138,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--table8", type=str, required=True,
                     help="Path to Table8_main_results_mean_std.csv")
-    ap.add_argument("--out_dir", type=str, default="figures",
+    ap.add_argument("--out_dir", type=str, default="output/figures",
                     help="Output directory")
     ap.add_argument("--name", type=str, default="fig7_main_results",
                     help="Output filename prefix (without extension)")
@@ -142,16 +151,16 @@ def main():
 
     df = pd.read_csv(args.table8)
 
-    # column names may vary slightly — be robust
+    # column names may vary slightly - be robust
     col_method = get_col(df, ["method", "Method", "algo"])
     if col_method != "method":
         df = df.rename(columns={col_method: "method"})
 
     col_irrig = get_col(df, ["TotalIrrigation_mm", "TotalIrrigation", "Irrigation_mm"])
-    col_within = get_col(df, ["WithinTargetRatio", "WithinTarget", "TargetRatio"])
+    col_within = get_col(df, ["TIR_ref", "WithinTargetRatio", "WithinTarget", "TargetRatio"])
 
-    # methods for Fig.7 (fixed order)
-    labels = ["Threshold", "FAO Rule", "PPO"]
+    # methods for Fig.7 (fixed order, strong baselines)
+    labels = ["Vanilla PPO", "Tuned FAO-rule", "PPO"]
 
     # extract mean/std
     irrig_means, irrig_stds = [], []
@@ -159,13 +168,13 @@ def main():
 
     # mapping for names inside csv
     csv_map = {
-        "Threshold": "Threshold",
-        "FAO Rule": "FAORule",  # many of your files use FAORule
-        "PPO": "PPO"
+        "Vanilla PPO": ["VanillaPPO", "Vanilla PPO"],
+        "Tuned FAO-rule": ["TunedFAORule", "Tuned FAO-rule", "Tuned FAO Rule"],
+        "PPO": ["PPO"],
     }
 
     for lab in labels:
-        row = pick_row(df, csv_map[lab])
+        row = pick_row_from_candidates(df, csv_map[lab])
         m, s = parse_mean_std(row[col_irrig])
         irrig_means.append(m)
         irrig_stds.append(s)
@@ -181,16 +190,16 @@ def main():
 
     # derive key annotations
     ppo_irrig = irrig_means[2]
-    thr_irrig = irrig_means[0]
-    fao_irrig = irrig_means[1]
-    save_thr = 100.0 * (thr_irrig - ppo_irrig) / thr_irrig
-    save_fao = 100.0 * (fao_irrig - ppo_irrig) / fao_irrig
+    vanilla_irrig = irrig_means[0]
+    tuned_irrig = irrig_means[1]
+    save_vanilla = 100.0 * (vanilla_irrig - ppo_irrig) / vanilla_irrig
+    save_tuned = 100.0 * (tuned_irrig - ppo_irrig) / tuned_irrig
 
     ppo_within = within_means[2] / 100.0
-    thr_within = within_means[0] / 100.0
-    fao_within = within_means[1] / 100.0
-    gain_thr = ppo_within / max(thr_within, 1e-12)
-    gain_fao = ppo_within / max(fao_within, 1e-12)
+    vanilla_within = within_means[0] / 100.0
+    tuned_within = within_means[1] / 100.0
+    gain_vanilla = ppo_within / max(vanilla_within, 1e-12)
+    gain_tuned = ppo_within / max(tuned_within, 1e-12)
 
     # colors: PPO highlight, baselines grey
     PPO_COLOR = "#1F77B4"
@@ -225,7 +234,7 @@ def main():
     )
     add_info_box(
         ax1,
-        f"PPO saves ~{save_fao:.1f}% vs FAO Rule\n~{save_thr:.1f}% vs Threshold",
+        f"PPO saves ~{save_tuned:.1f}% vs Tuned FAO-rule\n~{save_vanilla:.1f}% vs Vanilla PPO",
         x=0.82, y=0.98, ha="center"
     )
 
@@ -247,14 +256,14 @@ def main():
     )
     add_info_box(
         ax2,
-        f"PPO improves tracking by ~{gain_thr:.0f}× vs Threshold\nand ~{gain_fao:.0f}× vs FAO Rule",
+        f"PPO improves tracking by ~{gain_tuned:.2f}x vs Tuned FAO-rule\nand ~{gain_vanilla:.2f}x vs Vanilla PPO",
         x=0.08, y=0.98, ha="left"
     )
     #ax1.set_title("(a) Irrigation amount (lower is better)", pad=16)
     #ax2.set_title("(b) Within-target ratio (higher is better)", pad=16)
 
 # small footnote
-    fig.text(0.985, 0.015, "mean ± std", ha="right", va="bottom", fontsize=9, alpha=0.7)
+    fig.text(0.985, 0.015, "mean +/- std", ha="right", va="bottom", fontsize=9, alpha=0.7)
 
     # save
     out_png = out_dir / f"{args.name}.png"
@@ -270,3 +279,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

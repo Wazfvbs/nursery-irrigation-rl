@@ -28,8 +28,8 @@ def pick_existing(candidates: List[Path]) -> Optional[Path]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", type=str, default=".")
-    ap.add_argument("--tables", type=str, default="outputs/tables_ref")
-    ap.add_argument("--out", type=str, default="outputs/figures")
+    ap.add_argument("--tables", type=str, default="output/tables_ref")
+    ap.add_argument("--out", type=str, default="output/figures")
     ap.add_argument("--seed", type=int, default=42, help="representative seed for single-trajectory figures")
     ap.add_argument("--clip", type=float, default=2.5, help="clip for Fig6 panel-b")
     ap.add_argument("--noise_setting", type=str, default="noise_only", help="setting used by Fig8 table")
@@ -58,8 +58,8 @@ def main():
     if not args.skip_fig5:
         traj = pick_existing(
             [
-                root / "outputs" / "ppo_runs" / f"seed{args.seed}" / "eval" / "trajectory.csv",
-                root / "outputs" / "ablation_ref" / "Full" / f"seed{args.seed}" / "eval" / "trajectory.csv",
+                root / "output" / "ppo_runs" / f"seed{args.seed}" / "eval" / "trajectory.csv",
+                root / "output" / "ablation_ref" / "Full" / f"seed{args.seed}" / "eval" / "trajectory.csv",
             ]
         )
         if traj is None:
@@ -145,8 +145,6 @@ def main():
                         str(table9),
                         "--out_prefix",
                         str(out_dir / "fig8_robustness"),
-                        "--stress_max",
-                        "100",
                     ],
                 )
             )
@@ -180,7 +178,7 @@ def main():
 
     if any(code != 0 for code in rc_all):
         raise SystemExit(1)
-    print(f"\n[OK] figure batch finished. Outputs in: {out_dir}")
+    print(f"\n[OK] figure batch finished. Output dir: {out_dir}")
 
 
 if __name__ == "__main__":

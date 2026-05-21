@@ -6,6 +6,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.history/
 
 # venv
 .venv/
@@ -18,6 +19,7 @@ venv/
 
 # Outputs / logs
 outputs/
+output/
 logs/
 runs/
 

@@ -110,10 +110,10 @@ def plot_grid(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--main_csv", type=str, default="outputs/tables_ref/Table10_ablation_mean_std.csv")
-    ap.add_argument("--supp_csv", type=str, default="outputs/tables_ref/Table10_ablation_supp_mean_std.csv")
-    ap.add_argument("--out_main", type=str, default="outputs/figures/Fig9_ablation_main.png")
-    ap.add_argument("--out_supp", type=str, default="outputs/figures/Fig9_ablation_supp.png")
+    ap.add_argument("--main_csv", type=str, default="output/tables_ref/Table10_ablation_mean_std.csv")
+    ap.add_argument("--supp_csv", type=str, default="output/tables_ref/Table10_ablation_supp_mean_std.csv")
+    ap.add_argument("--out_main", type=str, default="output/figures/Fig9_ablation_main.png")
+    ap.add_argument("--out_supp", type=str, default="output/figures/Fig9_ablation_supp.png")
     ap.add_argument("--use_improvement_sign", action="store_true")
     args = ap.parse_args()
 

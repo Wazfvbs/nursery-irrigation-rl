@@ -126,19 +126,19 @@ def get_target_band_from_ppo(ppo_runs: dict):
     return band_lo, band_hi
 
 
-def plot_fig6a_dr_distribution(ppo_runs, fao_runs, thr_runs, out_prefix: str):
+def plot_fig6a_dr_distribution(ppo_runs, tuned_runs, vanilla_runs, out_prefix: str):
     _set_style()
     band_lo, band_hi = get_target_band_from_ppo(ppo_runs)
 
     dr_ppo = pd.concat([df["Dr"] for df in ppo_runs.values()], ignore_index=True).dropna().values
-    dr_fao = pd.concat([df["Dr"] for df in fao_runs.values()], ignore_index=True).dropna().values
-    dr_thr = pd.concat([df["Dr"] for df in thr_runs.values()], ignore_index=True).dropna().values
+    dr_tuned = pd.concat([df["Dr"] for df in tuned_runs.values()], ignore_index=True).dropna().values
+    dr_vanilla = pd.concat([df["Dr"] for df in vanilla_runs.values()], ignore_index=True).dropna().values
 
     fig, ax = plt.subplots(figsize=(8.2, 4.6))
     ax.axhspan(band_lo, band_hi, alpha=0.18)
 
-    data = [dr_ppo, dr_fao, dr_thr]
-    labels = ["PPO", "FAO-rule", "Threshold-rule"]
+    data = [dr_ppo, dr_tuned, dr_vanilla]
+    labels = ["PPO", "Tuned FAO-rule", "Vanilla PPO"]
 
     bp = ax.boxplot(
         data,
@@ -159,7 +159,7 @@ def plot_fig6a_dr_distribution(ppo_runs, fao_runs, thr_runs, out_prefix: str):
     ax.set_xlabel("Method")
     #ax.set_title(r"(a) $D_{r,t}$ distribution (nominal)", pad=8)
 
-    ymin = min(0, np.min([dr_ppo.min(), dr_fao.min(), dr_thr.min()]) - 1)
+    ymin = min(0, np.min([dr_ppo.min(), dr_tuned.min(), dr_vanilla.min()]) - 1)
     ax.set_ylim(bottom=ymin)
 
     # clearer legend
@@ -177,21 +177,21 @@ def plot_fig6a_dr_distribution(ppo_runs, fao_runs, thr_runs, out_prefix: str):
 
 
 def plot_fig6b_irrigation_actions(
-        ppo_runs, fao_runs, thr_runs,
+        ppo_runs, tuned_runs, vanilla_runs,
         out_prefix: str,
         irr_clip: float = 2.5
 ):
     _set_style()
     it_ppo = _mean_std_by_day(ppo_runs, "I")
-    it_fao = _mean_std_by_day(fao_runs, "I")
-    it_thr = _mean_std_by_day(thr_runs, "I")
+    it_tuned = _mean_std_by_day(tuned_runs, "I")
+    it_vanilla = _mean_std_by_day(vanilla_runs, "I")
 
     fig, ax = plt.subplots(figsize=(8.2, 4.6))
 
     # --- fixed, consistent colors (manual but journal-friendly) ---
     c_ppo = "#1f77b4"   # blue
-    c_fao = "#2ca02c"   # green
-    c_thr = "#ff7f0e"   # orange
+    c_tuned = "#2ca02c"   # green
+    c_vanilla = "#ff7f0e"   # orange
     c_peak = "#d62728"  # red
 
     # ===================== Main axis: PPO clipped view =====================
@@ -231,27 +231,27 @@ def plot_fig6b_irrigation_actions(
     # ===================== Inset: baselines full scale =====================
     axins = inset_axes(ax, width="38%", height="55%", loc="upper right", borderpad=1.0)
 
-    # FAO-rule
-    dd = it_fao["day"].to_numpy()
-    mm = it_fao["mean"].to_numpy()
-    ss = it_fao["std"].to_numpy()
-    l_fao, = axins.plot(dd, mm, color=c_fao, linewidth=1.8, label="FAO-rule")
-    axins.fill_between(dd, np.maximum(0, mm - ss), mm + ss, color=c_fao, alpha=0.12)
+    # Tuned FAO-rule
+    dd = it_tuned["day"].to_numpy()
+    mm = it_tuned["mean"].to_numpy()
+    ss = it_tuned["std"].to_numpy()
+    l_tuned, = axins.plot(dd, mm, color=c_tuned, linewidth=1.8, label="Tuned FAO-rule")
+    axins.fill_between(dd, np.maximum(0, mm - ss), mm + ss, color=c_tuned, alpha=0.12)
 
-    # Threshold-rule
-    dd = it_thr["day"].to_numpy()
-    mm = it_thr["mean"].to_numpy()
-    ss = it_thr["std"].to_numpy()
-    l_thr, = axins.plot(dd, mm, color=c_thr, linewidth=1.8, label="Threshold-rule")
-    axins.fill_between(dd, np.maximum(0, mm - ss), mm + ss, color=c_thr, alpha=0.12)
+    # Vanilla PPO
+    dd = it_vanilla["day"].to_numpy()
+    mm = it_vanilla["mean"].to_numpy()
+    ss = it_vanilla["std"].to_numpy()
+    l_vanilla, = axins.plot(dd, mm, color=c_vanilla, linewidth=1.8, label="Vanilla PPO")
+    axins.fill_between(dd, np.maximum(0, mm - ss), mm + ss, color=c_vanilla, alpha=0.12)
 
     # 去掉 inset 标题（你想删掉的小图标题）
     # axins.set_title("Baselines (full scale)", fontsize=10, pad=-6)
 
     axins.set_xlim(d.min(), d.max())
     ymax = max(
-        float(it_fao["mean"].max() + it_fao["std"].max()),
-        float(it_thr["mean"].max() + it_thr["std"].max())
+        float(it_tuned["mean"].max() + it_tuned["std"].max()),
+        float(it_vanilla["mean"].max() + it_vanilla["std"].max())
     )
     axins.set_ylim(0, ymax)
     axins.grid(alpha=0.20)
@@ -267,11 +267,11 @@ def plot_fig6b_irrigation_actions(
     _save(fig, out_prefix + "_b.png", out_prefix + "_b.pdf")
 
 
-def plot_fig6c_cumulative_irrigation(ppo_runs, fao_runs, thr_runs, out_prefix: str):
+def plot_fig6c_cumulative_irrigation(ppo_runs, tuned_runs, vanilla_runs, out_prefix: str):
     _set_style()
     cum_ppo = _cumsum_mean_std(ppo_runs, "I")
-    cum_fao = _cumsum_mean_std(fao_runs, "I")
-    cum_thr = _cumsum_mean_std(thr_runs, "I")
+    cum_tuned = _cumsum_mean_std(tuned_runs, "I")
+    cum_vanilla = _cumsum_mean_std(vanilla_runs, "I")
 
     fig, ax = plt.subplots(figsize=(8.2, 4.6))
 
@@ -283,8 +283,8 @@ def plot_fig6c_cumulative_irrigation(ppo_runs, fao_runs, thr_runs, out_prefix: s
         ax.fill_between(dd, np.maximum(0, mm - ss), mm + ss, alpha=0.18)
 
     plot_cum(cum_ppo, "PPO")
-    plot_cum(cum_fao, "FAO-rule")
-    plot_cum(cum_thr, "Threshold-rule")
+    plot_cum(cum_tuned, "Tuned FAO-rule")
+    plot_cum(cum_vanilla, "Vanilla PPO")
 
     ax.set_ylabel(r"Cumulative irrigation $\sum_{t \leq d} I_t$ (mm)")
     ax.set_xlabel("Day")
@@ -298,36 +298,37 @@ def plot_fig6c_cumulative_irrigation(ppo_runs, fao_runs, thr_runs, out_prefix: s
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", type=str, default=".", help="Project root (where outputs/ exists)")
-    ap.add_argument("--out", type=str, default="figures/fig6_nominal_failure",
-                    help="Output path prefix, e.g., figures/fig6_nominal_failure")
+    ap.add_argument("--root", type=str, default=".", help="Project root (where output/ exists)")
+    ap.add_argument("--out", type=str, default="output/figures/fig6_nominal_failure",
+                    help="Output path prefix, e.g., output/figures/fig6_nominal_failure")
     ap.add_argument("--clip", type=float, default=2.5, help="PPO clip value for panel (b)")
     args = ap.parse_args()
 
     root = Path(args.root)
 
     ppo_pat = _pick_first_nonempty_pattern([
-        str(root / "outputs" / "ppo_runs" / "seed*" / "eval" / "trajectory.csv"),
-        str(root / "outputs" / "ablation_ref" / "Full" / "seed*" / "eval" / "trajectory.csv"),
+        str(root / "output" / "ppo_runs" / "seed*" / "eval" / "trajectory.csv"),
+        str(root / "output" / "robust_test_ref" / "PPO" / "nominal" / "seed*" / "trajectory.csv"),
+        str(root / "output" / "ablation_ref" / "Full" / "seed*" / "eval" / "trajectory.csv"),
     ])
-    fao_pat = _pick_first_nonempty_pattern([
-        str(root / "outputs" / "baselines" / "FAORule" / "seed*" / "trajectory.csv"),
-        str(root / "outputs" / "baselines_ref" / "FAORule" / "seed*" / "trajectory.csv"),
+    tuned_pat = _pick_first_nonempty_pattern([
+        str(root / "output" / "baselines" / "TunedFAORule" / "seed*" / "trajectory.csv"),
+        str(root / "output" / "baselines_ref" / "TunedFAORule" / "seed*" / "trajectory.csv"),
     ])
-    thr_pat = _pick_first_nonempty_pattern([
-        str(root / "outputs" / "baselines" / "Threshold" / "seed*" / "trajectory.csv"),
-        str(root / "outputs" / "baselines_ref" / "Threshold" / "seed*" / "trajectory.csv"),
+    vanilla_pat = _pick_first_nonempty_pattern([
+        str(root / "output" / "vanilla_ppo_runs" / "seed*" / "eval" / "trajectory.csv"),
+        str(root / "output" / "robust_test_ref" / "VanillaPPO" / "nominal" / "seed*" / "trajectory.csv"),
     ])
 
     ppo_runs = _collect_runs(ppo_pat)
-    fao_runs = _collect_runs(fao_pat)
-    thr_runs = _collect_runs(thr_pat)
+    tuned_runs = _collect_runs(tuned_pat)
+    vanilla_runs = _collect_runs(vanilla_pat)
 
     out_prefix = str(Path(args.out))
 
-    plot_fig6a_dr_distribution(ppo_runs, fao_runs, thr_runs, out_prefix=out_prefix)
-    plot_fig6b_irrigation_actions(ppo_runs, fao_runs, thr_runs, out_prefix=out_prefix, irr_clip=args.clip)
-    plot_fig6c_cumulative_irrigation(ppo_runs, fao_runs, thr_runs, out_prefix=out_prefix)
+    plot_fig6a_dr_distribution(ppo_runs, tuned_runs, vanilla_runs, out_prefix=out_prefix)
+    plot_fig6b_irrigation_actions(ppo_runs, tuned_runs, vanilla_runs, out_prefix=out_prefix, irr_clip=args.clip)
+    plot_fig6c_cumulative_irrigation(ppo_runs, tuned_runs, vanilla_runs, out_prefix=out_prefix)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ import numpy as np
 import re
 
 # Load the data again
-table_path = "../outputs/tables/Table10_ablation_mean_std.csv"
+table_path = "../output/tables_ref/Table10_ablation_mean_std.csv"
 df = pd.read_csv(table_path)
 
 # Parse mean ± std from string
@@ -61,7 +61,7 @@ for i, col in enumerate(categories_a):
 
 # Tight layout adjustment
 fig.tight_layout(pad=2.5)
-plt.savefig("../outputs/figures/fig9_a_comparison_optimized_v4.png", dpi=300)
+plt.savefig("../output/figures/fig9_a_comparison_optimized_v4.png", dpi=300)
 plt.close()
 
-"../outputs/figures/fig9_a_comparison_optimized_v4.png"
+"../output/figures/fig9_a_comparison_optimized_v4.png"

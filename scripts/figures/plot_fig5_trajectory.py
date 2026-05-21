@@ -57,7 +57,7 @@ def compute_summary(df: pd.DataFrame, dt_days: float = 1.0) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--traj", type=str, required=True, help="trajectory.csv path")
-    ap.add_argument("--out", type=str, default="figures/fig5_overlay", help="output file prefix without suffix")
+    ap.add_argument("--out", type=str, default="output/figures/fig5_overlay", help="output file prefix without suffix")
     ap.add_argument("--skip_first", type=int, default=0, help="skip first N steps in plotting (visual only)")
     ap.add_argument("--dt_days", type=float, default=1.0, help="time step in days (for total irrigation)")
     ap.add_argument("--clip_I", type=float, default=-1.0,

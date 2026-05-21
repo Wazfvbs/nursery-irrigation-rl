@@ -20,7 +20,7 @@ def main():
     ap.add_argument("--ppo", type=str, required=True)
     ap.add_argument("--fao", type=str, required=True)
     ap.add_argument("--thr", type=str, required=True)
-    ap.add_argument("--out", type=str, default="fig6_final.pdf")
+    ap.add_argument("--out", type=str, default="output/figures/fig6_final.pdf")
     ap.add_argument("--title", type=str, default="Fig.6 Baseline failure: over-irrigation and target misalignment (Nominal)")
     ap.add_argument("--skip_days", type=int, default=3, help="Skip first N days (remove initial transient)")
     ap.add_argument("--clip_I", type=float, default=2.5, help="Clip PPO irrigation plot for visibility")
