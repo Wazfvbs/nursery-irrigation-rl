@@ -69,6 +69,10 @@ def evaluate_policy(
     t = 0
 
     while not done:
+        info_before = dict(info)
+        day_decision = int(info_before.get("day", t))
+        stage_norm_decision = float(info_before.get("stage_norm", 0.0))
+
         # SB3 predict for a single env (non-VecEnv) accepts 1D obs
         action, _ = model.predict(obs, deterministic=deterministic)
 
@@ -80,10 +84,14 @@ def evaluate_policy(
         row: Dict[str, Any] = {}
 
         row["t"] = t
-        row["day"] = int(info_next.get("day", t))
+        row["day"] = int(info_next.get("day_decision", day_decision))
+        row["day_decision"] = int(info_next.get("day_decision", day_decision))
+        row["day_next"] = int(info_next.get("day_next", info_next.get("day", day_decision + 1)))
 
         # stage position in nursery/crop cycle (0~1). Used by dynamic target.
-        row["stage_norm"] = float(info_next.get("stage_norm", 0.0))
+        row["stage_norm"] = float(info_next.get("stage_norm_decision", stage_norm_decision))
+        row["stage_norm_decision"] = float(info_next.get("stage_norm_decision", row["stage_norm"]))
+        row["stage_norm_next"] = float(info_next.get("stage_norm_next", info_next.get("stage_norm", 0.0)))
 
         row["Dr"] = float(info_next.get("Dr_mm", 0.0))
         row["theta"] = float(info_next.get("theta", 0.0))
@@ -157,6 +165,7 @@ def evaluate_policy(
         rows.append(row)
 
         obs = obs_next
+        info = info_next
         t += 1
 
         if max_steps is not None and t >= max_steps:
@@ -171,7 +180,7 @@ def evaluate_policy(
 
     # Build header as union of all keys (stable order: basic -> extra sorted)
     base_cols = [
-        "t", "day", "stage_norm",
+        "t", "day", "day_decision", "day_next", "stage_norm", "stage_norm_decision", "stage_norm_next",
         "Dr", "theta",
         "TAW", "RAW",
         "ET0", "ETc",

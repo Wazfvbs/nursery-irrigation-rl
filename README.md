@@ -81,8 +81,8 @@ nursery-irrigation-rl/
 - `fao56.py`  
   - `calc_TAW / calc_RAW / calc_Ks`：FAO-56关键公式  
   - `theta_to_Dr / Dr_to_theta`：状态映射  
-  - `calc_ET0_PM`：**Penman–Monteith（目前为占位，内部 fallback）**
-  - `calc_ET0_fallback`：传感器受限的简化 ET0（可替换 Hargreaves）
+  - `calc_ET0_PM`：FAO-56 daily Penman-Monteith；字段不足时自动 fallback
+  - `calc_ET0_fallback`：传感器受限的简化 ET0
 
 - `dynamics.py`  
   - `update_Dr()`：根区水量平衡更新（最核心、最应该与论文公式一致）
@@ -196,7 +196,7 @@ Section 4.5 “Disturbance-Robust Training”。
   - `external`：从 CSV 加载（论文建议）  
   - `measured`：对接真实传感数据（后续扩展）
 - `csv_path`：external 模式的 CSV 文件路径  
-- `T_mean_C / RH_pct / u2_mps / Rs_MJ_m2_day`：assumption 模式默认天气值
+- `T_mean_C / RH_pct / u2_mps / Rs_MJ_m2_day / elevation_m`：assumption 模式默认天气值，用于 FAO-56 daily Penman-Monteith
 
 #### `termination`
 - `terminate_on_theta_below_wp`：若 `theta < theta_wp` 是否终止
@@ -312,9 +312,9 @@ output/
 - train-time domain randomization 注入 env/reset
 - 多 seeds 表格聚合脚本（Table 8/9/10）
 - 论文图表生成脚本（Fig.5/Fig.7/Fig.8/Fig.9）
+- FAO-56 daily Penman-Monteith ET0（含 sensor-limited fallback）
 
 ### 🟡 待实现（我们下一步要补齐）
-- `calc_ET0_PM()`：完整 Penman–Monteith（支持 sensor-limited fallback）
 - 更细化的 DP/径流模型与真实降雨输入
 
 ---
@@ -336,14 +336,11 @@ A：为支持消融实验（w/o reward shaping）与不同 reward 组合，本�
 ---
 
 ## 10. 下一步开发路线（建议顺序）
-1) **补齐 ET0_PM**（核心可解释性）
-2) **补齐 DP 模型**（水量闭环）
-3) **跑正式 10 seeds + 鲁棒评估 + 消融评估**
-4) **用 `scripts/make_tables.py` 与 `scripts/figures/make_figures.py` 固化 Table/Fig**
-5) **基于最终表图撰写 Results、Ablation 与 Robustness 小节**
+1) **补齐 DP/径流模型与真实降雨输入**（水量闭环）
+2) **跑正式 10 seeds + 鲁棒评估 + 消融评估**
+3) **用 `scripts/make_tables.py` 与 `scripts/figures/make_figures.py` 固化 Table/Fig**
+4) **基于最终表图撰写 Results、Ablation 与 Robustness 小节**
 
 ---
 
-如需我继续推进：  
-✅ 我可以下一步直接给你 **`calc_ET0_PM()` 的最小可运行 Penman–Monteith 实现**（支持缺失变量补齐 & 单元测试）。  
-你只需回复：**“开始实现 ET0_PM”**。
+如需继续推进，下一步建议先做 DP/降雨模型口径收敛，然后再启动正式 10 seeds。

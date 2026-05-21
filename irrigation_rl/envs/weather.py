@@ -17,6 +17,7 @@ class AssumptionWeatherConfig:
     RH_pct: float = 60.0
     u2_mps: float = 1.0
     Rs_MJ_m2_day: float = 15.0
+    elevation_m: float = 0.0
     noise_sigma: float = 0.0
 
 class AssumptionWeatherProvider(WeatherProvider):
@@ -34,6 +35,8 @@ class AssumptionWeatherProvider(WeatherProvider):
             "RH_pct": float(self.cfg.RH_pct + self.rng.normal(0.0, n)),
             "u2_mps": float(max(0.0, self.cfg.u2_mps + self.rng.normal(0.0, n))),
             "Rs_MJ_m2_day": float(max(0.0, self.cfg.Rs_MJ_m2_day + self.rng.normal(0.0, n))),
+            "elevation_m": float(self.cfg.elevation_m),
+            "day_of_year": float((int(t) % 365) + 1),
         }
 
 class ExternalCSVWeatherProvider(WeatherProvider):
@@ -50,10 +53,30 @@ class ExternalCSVWeatherProvider(WeatherProvider):
     def get_day(self, t: int) -> Dict[str, float]:
         idx = int(t) % len(self.df)
         row = self.df.iloc[idx].to_dict()
-        # Normalize keys
-        return {
+
+        out = {
             "T_mean_C": float(row.get("T_mean_C", row.get("T", 20.0))),
             "RH_pct": float(row.get("RH_pct", row.get("RH", 60.0))),
             "u2_mps": float(row.get("u2_mps", row.get("u2", 1.0))),
             "Rs_MJ_m2_day": float(row.get("Rs_MJ_m2_day", row.get("Rs", 15.0))),
         }
+
+        optional_aliases = {
+            "T_max_C": ("T_max_C", "Tmax_C", "Tmax", "T_max"),
+            "T_min_C": ("T_min_C", "Tmin_C", "Tmin", "T_min"),
+            "Rn_MJ_m2_day": ("Rn_MJ_m2_day", "Rn"),
+            "G_MJ_m2_day": ("G_MJ_m2_day", "G"),
+            "pressure_kPa": ("pressure_kPa", "P_kPa", "atm_pressure_kPa"),
+            "elevation_m": ("elevation_m", "z_m", "altitude_m"),
+            "latitude_deg": ("latitude_deg", "lat_deg", "lat"),
+            "latitude_rad": ("latitude_rad", "lat_rad"),
+            "day_of_year": ("day_of_year", "doy", "DOY", "day"),
+            "Ra_MJ_m2_day": ("Ra_MJ_m2_day", "Ra"),
+            "Rso_MJ_m2_day": ("Rso_MJ_m2_day", "Rso"),
+        }
+        for canonical, aliases in optional_aliases.items():
+            for alias in aliases:
+                if alias in row and pd.notna(row[alias]):
+                    out[canonical] = float(row[alias])
+                    break
+        return out

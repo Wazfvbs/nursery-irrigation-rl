@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Tuple
+import math
+from typing import Dict, Optional, Tuple
 
 
 def distance_to_interval(x: float, lo: float, hi: float) -> float:
@@ -48,7 +49,7 @@ class RewardFunction:
         Imax: float,
         TAW: float,
         RAW: float,
-        DP: float = 0.0,
+        DP: Optional[float] = None,
         P: float = 0.0,
         ucb_bonus: float = 0.0,
         uncertainty: float = 0.0,
@@ -62,7 +63,16 @@ class RewardFunction:
         I = float(I)
         I_prev = float(I_prev)
         RAW = float(RAW)
-        DP = max(0.0, float(DP))
+        dp_missing = DP is None
+        if dp_missing:
+            dp_mm = None
+        else:
+            try:
+                dp_value = float(DP)
+                dp_mm = max(0.0, dp_value) if math.isfinite(dp_value) else None
+            except (TypeError, ValueError):
+                dp_mm = None
+            dp_missing = dp_mm is None
         P = max(0.0, float(P))
 
         e_target_mm = distance_to_interval(Dr, float(Dr_lo), float(Dr_hi))
@@ -70,16 +80,16 @@ class RewardFunction:
         water_use = I / imax
         stress = max(0.0, Dr - RAW) / taw
 
-        over_mm = DP if DP > 0.0 else max(0.0, I + P - Dr_prev)
+        over_mm = max(0.0, I + P - Dr_prev) if dp_missing else float(dp_mm)
         over_irrigation = over_mm / taw
         smoothness = abs(I - I_prev) / imax
 
         safety_violation = 0.0
         if unsafe:
             safety_violation += 1.0
-        if Dr > RAW:
+        if Dr >= taw:
             safety_violation += 1.0
-        if DP > float(self.cfg.dp_max):
+        if over_mm > float(self.cfg.dp_max):
             safety_violation += 1.0
 
         r_track = -self.cfg.w_track * e_target
@@ -127,4 +137,3 @@ class RewardFunction:
             "reward": float(reward),
         }
         return float(reward), terms
-

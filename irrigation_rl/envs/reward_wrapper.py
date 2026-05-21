@@ -100,7 +100,8 @@ class RewardWrapper(gym.Wrapper):
         theta = float(info.get("theta", 0.0))
         TAW = float(info.get("TAW_mm", getattr(self.env, "TAW", 1.0)))
         RAW = float(info.get("RAW_mm", getattr(self.env, "RAW", 1.0)))
-        DP = float(info.get("DP", 0.0))
+        DP = info.get("DP", None)
+        DP_mm = 0.0 if DP is None else max(0.0, float(DP))
         P = float(info.get("P", 0.0))
 
         if "I_mm" in info:
@@ -131,14 +132,15 @@ class RewardWrapper(gym.Wrapper):
         c_uncertain = float(uncertainty) * (abs(I) / max(Imax, 1e-8))
 
         theta_wp = float(getattr(getattr(self.env, "cfg", None), "theta_wp", 0.0))
-        unsafe = theta < theta_wp
+        unsafe = theta <= theta_wp
 
         if not self.flags.use_reward_shaping:
             err = distance_to_interval(Dr, Dr_lo_train, Dr_hi_train)
             violation = 1.0 if err > 0.0 else 0.0
             r_track = -self.reward_cfg.w_track * violation
             r_water = -self.reward_cfg.w_water * (I / max(Imax, 1e-8))
-            r_safe = -self.reward_cfg.w_safe if unsafe else 0.0
+            safety_violation = float(unsafe or Dr >= TAW or DP_mm > self.reward_cfg.dp_max)
+            r_safe = -self.reward_cfg.w_safe * safety_violation
             r_ucb = self.reward_cfg.w_ucb * bonus
             r_uncertainty = -self.reward_cfg.w_uncertainty * c_uncertain
             reward = r_track + r_water + r_safe + r_ucb + r_uncertainty
@@ -148,9 +150,9 @@ class RewardWrapper(gym.Wrapper):
                 "e_target_mm": float(err),
                 "water_use": float(I / max(Imax, 1e-8)),
                 "stress": float(max(0.0, Dr - RAW) / max(TAW, 1e-8)),
-                "over_irrigation": float(DP / max(TAW, 1e-8)),
+                "over_irrigation": float(DP_mm / max(TAW, 1e-8)),
                 "smoothness": float(abs(I - I_prev) / max(Imax, 1e-8)),
-                "safety_violation": float(violation),
+                "safety_violation": float(safety_violation),
                 "ucb_bonus": float(bonus),
                 "uncertainty": float(uncertainty),
                 "c_uncertain": float(c_uncertain),
@@ -183,6 +185,10 @@ class RewardWrapper(gym.Wrapper):
         terms["pred_next_Dr"] = float(pred_next_dr)
         terms["uncertainty_loss"] = float(predictor_loss)
 
+        info["day_decision"] = int(info_before.get("day", max(int(info.get("day", 1)) - 1, 0)))
+        info["day_next"] = int(info.get("day", info["day_decision"] + 1))
+        info["stage_norm_decision"] = float(self._stage_norm(target_info, target_obs))
+        info["stage_norm_next"] = float(info.get("stage_norm", 0.0))
         self._write_interval_info(info, Dr_lo_train, Dr_hi_train, Dr_lo_ref, Dr_hi_ref)
         info["Dr_mid_ref"] = float(Dr_mid_ref)
         info["ucb_bonus"] = float(bonus)
@@ -252,4 +258,3 @@ class RewardWrapper(gym.Wrapper):
             if arr.size >= 2:
                 return float(arr[1])
         return float(info.get("ET0", info.get("ET0_obs", 0.0)))
-

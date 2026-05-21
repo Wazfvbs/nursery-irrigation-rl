@@ -23,6 +23,11 @@ class TargetConfig:
     lambda_et: float = 0.10
     min_width: float = 5.0
 
+    # Stage boundaries in the same normalized day coordinate as stage_norm.
+    # build_env derives these from env.yaml, e.g. 20/90 and 70/90 for 20/50/20.
+    early_end_norm: float = 1.0 / 3.0
+    mid_end_norm: float = 2.0 / 3.0
+
 
 class DynamicTarget:
     def __init__(self, cfg: TargetConfig):
@@ -31,11 +36,13 @@ class DynamicTarget:
     def get_interval(self, *, stage_norm: float, et0: float, taw: float) -> Tuple[float, float]:
         taw = max(float(taw), 1e-8)
         s = float(stage_norm)
+        early_end = max(0.0, min(float(self.cfg.early_end_norm), 1.0))
+        mid_end = max(early_end, min(float(self.cfg.mid_end_norm), 1.0))
 
-        if s < 0.33:
+        if s < early_end:
             lo = self.cfg.early_low_frac_TAW * taw
             hi = self.cfg.early_high_frac_TAW * taw
-        elif s < 0.66:
+        elif s < mid_end:
             lo = self.cfg.mid_low_frac_TAW * taw
             hi = self.cfg.mid_high_frac_TAW * taw
         else:
@@ -49,4 +56,3 @@ class DynamicTarget:
         if hi < lo:
             hi = lo
         return float(lo), float(hi)
-

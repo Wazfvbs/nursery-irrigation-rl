@@ -101,6 +101,7 @@ def build_env(env_cfg: dict, train_cfg: dict, seed: int = 0):
                 RH_pct=env_cfg["weather"].get("RH_pct", 60.0),
                 u2_mps=env_cfg["weather"].get("u2_mps", 1.0),
                 Rs_MJ_m2_day=env_cfg["weather"].get("Rs_MJ_m2_day", 15.0),
+                elevation_m=env_cfg["weather"].get("elevation_m", 0.0),
                 noise_sigma=0.0,
             )
         )
@@ -155,6 +156,10 @@ def build_env(env_cfg: dict, train_cfg: dict, seed: int = 0):
             target_cfg.et0_mean = _estimate_et0_mean(weather, cfg.horizon_days)
     else:
         target_cfg.et0_mean = _estimate_et0_mean(weather, cfg.horizon_days)
+    target_cfg.early_end_norm = float(cfg.stage_ini_days) / max(float(cfg.horizon_days), 1.0)
+    target_cfg.mid_end_norm = float(cfg.stage_ini_days + cfg.stage_mid_days) / max(
+        float(cfg.horizon_days), 1.0
+    )
 
     ucb_cfg = UCBConfig(enabled=flags.use_ucb_bonus)
     ucb_block = train_cfg.get("ucb", {})
@@ -190,7 +195,11 @@ def build_env(env_cfg: dict, train_cfg: dict, seed: int = 0):
         dr_cfg = _load_randomization_cfg(train_cfg)
         if dr_cfg.enabled:
             env = DomainRandomizationWrapper(env, cfg=dr_cfg, seed=seed)
-            if float(dr_cfg.theta_sigma) > 0.0:
+            if (
+                float(dr_cfg.Dr_sigma_mm) > 0.0
+                or float(dr_cfg.ET0_sigma) > 0.0
+                or float(dr_cfg.theta_sigma) > 0.0
+            ):
                 obs_cfg = ObsNoiseConfig(
                     enabled=True,
                     Dr_sigma_mm=float(dr_cfg.Dr_sigma_mm),
