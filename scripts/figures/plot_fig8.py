@@ -65,22 +65,30 @@ def parse_mean_std(value):
     if pd.isna(value):
         return np.nan, np.nan
     if isinstance(value, (int, float, np.number)):
-        return float(value), 0.0
+        return float(value), np.nan
     tokens = re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", str(value))
     if len(tokens) >= 2:
         return float(tokens[0]), float(tokens[1])
     if len(tokens) == 1:
-        return float(tokens[0]), 0.0
+        return float(tokens[0]), np.nan
     return np.nan, np.nan
 
 
 def format_mean_std(mean, std, decimals):
+    if not np.isfinite(std):
+        return f"{mean:.{decimals}f}"
     return f"{mean:.{decimals}f}+/-{std:.{decimals}f}"
 
 
+def _plot_stds(stds):
+    arr = np.asarray(stds, dtype=float)
+    return np.where(np.isfinite(arr), arr, 0.0)
+
+
 def padded_limits(means, stds, margin=0.08, floor_zero=False, snap=None, min_span=None):
-    lows = np.asarray(means) - np.asarray(stds)
-    highs = np.asarray(means) + np.asarray(stds)
+    stds = _plot_stds(stds)
+    lows = np.asarray(means) - stds
+    highs = np.asarray(means) + stds
     lo = float(np.nanmin(lows))
     hi = float(np.nanmax(highs))
     span = hi - lo
@@ -112,8 +120,9 @@ def padded_limits(means, stds, margin=0.08, floor_zero=False, snap=None, min_spa
 
 
 def tir_limits(means, stds):
-    lows = np.asarray(means) - np.asarray(stds)
-    highs = np.asarray(means) + np.asarray(stds)
+    stds = _plot_stds(stds)
+    lows = np.asarray(means) - stds
+    highs = np.asarray(means) + stds
     lo = max(0.0, float(np.nanmin(lows)) - 1.5)
     hi = min(100.2, float(np.nanmax(highs)) + 0.08)
     lo = math.floor(lo * 2.0) / 2.0
@@ -124,7 +133,7 @@ def tir_limits(means, stds):
 
 
 def noise_stress_limits(means, stds):
-    upper = float(np.nanmax(np.asarray(means) + np.asarray(stds)))
+    upper = float(np.nanmax(np.asarray(means) + _plot_stds(stds)))
     if upper <= 2.0:
         return 0.0, 2.0
     return 0.0, max(3.0, math.ceil((upper * 1.1) / 0.5) * 0.5)
@@ -159,7 +168,7 @@ def plot_panel(ax, labels, means, stds, colors, title, xlabel, xlim, decimals, s
         ax.errorbar(
             mean,
             ypos,
-            xerr=std,
+            xerr=std if np.isfinite(std) else 0.0,
             fmt="o",
             color=color,
             ecolor=color,
@@ -258,7 +267,12 @@ def main():
         )
 
     axes[0].set_ylabel("Method")
-    fig.text(0.99, 0.03, args.note, ha="right", fontsize=8.5, alpha=0.8)
+    all_stds = []
+    for panel in PANEL_SPECS:
+        _, stds = extract_metric(rows, panel["metric"], panel["scale"])
+        all_stds.extend(stds.tolist())
+    note = args.note if np.any(np.isfinite(all_stds)) else "Single-seed pilot values are shown without std."
+    fig.text(0.99, 0.03, note, ha="right", fontsize=8.5, alpha=0.8)
     fig.tight_layout(rect=(0.0, 0.06, 1.0, 1.0))
 
     out_prefix = Path(args.out_prefix)

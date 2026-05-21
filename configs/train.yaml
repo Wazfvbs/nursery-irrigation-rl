@@ -1,4 +1,5 @@
 ﻿seed: 42
+method_name: UC-PPO
 total_timesteps: 200000
 policy: "MlpPolicy"
 

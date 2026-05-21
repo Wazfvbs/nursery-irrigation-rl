@@ -1,5 +1,5 @@
 # Nursery Irrigation RL（苗圃智能灌溉强化学习）  
-**FAO-56 Root-Zone Water Balance + PPO-Optimized（Reward Shaping / UCB / Robust Training）**
+**FAO-56 Root-Zone Water Balance + UC-PPO（Dynamic Target / UCB / Uncertainty Constraint）**
 
 本项目面向 **苗圃（nursery）场景的智能灌溉调度**，目标是在 **节水（water-saving）** 的同时 **避免作物水分胁迫（stress）**。  
 代码以 **FAO-56** 作为可解释的物理机制（根区亏缺 *Dr*、总有效水量 *TAW*、易用水量 *RAW*、胁迫系数 *Ks*、深层渗漏 *DP*），并在此基础上引入 **PPO 强化学习**，构建可复现的研究型工程结构，支撑 SCI 论文的符号体系、实验表格与图表输出。
@@ -43,7 +43,7 @@ python scripts/run_eval.py --config configs/train.yaml --out outputs/eval_run
 
 ### 2.4 多随机种子训练（建议 ≥10 seeds）
 ```bash
-python scripts/run_seeds.py --config configs/train.yaml --seeds 10
+python scripts/run_seeds.py --config configs/train.yaml --seed_start 42 --num_seeds 10 --out output/ppo_runs
 ```
 
 ---
@@ -250,26 +250,31 @@ Section 4.5 “Disturbance-Robust Training”。
 
 ### 5.5 `configs/ablation.yaml`（消融开关）
 用于快速指定消融组合。  
-后续可以在 `run_eval.py` / `run_seeds.py` 加入读取该文件以自动跑 Table 10。
+当前消融主入口为 `scripts/run_ablation.py`，会生成 Table 10 所需的 `metrics.json`。
 
 ---
 
 ## 6. 输出说明（outputs/）
 
-建议输出结构（后续完善为论文友好格式）：
+正式论文建议输出到 `output/`；当前 seed42 pilot 结果保存在 `out_puts/output/`，其中已包含训练、基线、消融、鲁棒性评估、表格和图表。
 ```
-outputs/
-  ppo_seed42.zip
-  eval_run/
-    trajectory.csv
-  seed_XX/
-    model.zip
-    trajectory.csv
+output/
+  ppo_runs/seedXX/
+    ppo_seedXX.zip
+    eval/trajectory.csv
     metrics.json
+  vanilla_ppo_runs/seedXX/
+  baselines_ref/
+  ablation_ref/
+  robust_test_ref/
+  tables_ref/
+  figures/
 ```
 
-- `trajectory.csv`：用于画 Fig.7（Dr轨迹/目标区间/灌溉量）  
-- `metrics.json`：用于生成 Table 8/9/10（mean±std）
+- `trajectory.csv`：用于画代表性轨迹图（Dr/目标区间/灌溉量/奖励项）。  
+- `metrics.json`：用于生成 Table 8/9/10；单 seed pilot 显示单值，正式 10 seeds 显示 mean +/- std。
+- `tables_ref/`：由 `scripts/make_tables.py` 生成论文表格 CSV。
+- `figures/`：由 `scripts/figures/make_figures.py` 生成 Fig5/Fig7/Fig8/Fig9 等图。
 
 ---
 
@@ -283,11 +288,11 @@ outputs/
 - **Fig.7**：`Dr`（或 `theta`）随时间轨迹 + 目标区间  
   - 来源：`outputs/*/trajectory.csv`
 
-- **Fig.8**：总灌溉量对比（bar chart）  
-  - 来源：`compute_metrics()` 的 `TotalIrrigation`
+- **Fig.8**：扰动设置下的鲁棒性对比  
+  - 来源：`Table9_robust_<setting>_mean_std.csv`
 
-- **Fig.9**：扰动 vs 标称鲁棒性对比  
-  - 来源：`noise_test.yaml` 下的评估输出
+- **Fig.9**：消融实验对 Full UC-PPO 的差值对比  
+  - 来源：`Table10_ablation_mean_std.csv` 与 `Table10_ablation_supp_mean_std.csv`
 
 - **Table 8/9/10**：主结果/扰动结果/消融结果  
   - 来源：多 seed 汇总 mean±std（由 `scripts/make_tables.py` 聚合）
@@ -305,10 +310,11 @@ outputs/
 - UC-PPO 多目标奖励（target/water/stress/over/smooth/safe）
 - 基于下一步 `Dr` 预测误差的 uncertainty penalty
 - train-time domain randomization 注入 env/reset
+- 多 seeds 表格聚合脚本（Table 8/9/10）
+- 论文图表生成脚本（Fig.5/Fig.7/Fig.8/Fig.9）
 
 ### 🟡 待实现（我们下一步要补齐）
 - `calc_ET0_PM()`：完整 Penman–Monteith（支持 sensor-limited fallback）
-- 多 seeds 结果聚合（Table 8/9/10）与作图脚本（Fig.6–11）
 - 更细化的 DP/径流模型与真实降雨输入
 
 ---
@@ -332,9 +338,9 @@ A：为支持消融实验（w/o reward shaping）与不同 reward 组合，本�
 ## 10. 下一步开发路线（建议顺序）
 1) **补齐 ET0_PM**（核心可解释性）
 2) **补齐 DP 模型**（水量闭环）
-3) **把 randomization 注入 reset**（鲁棒训练生效）
-4) **写 scripts/make_tables.py & make_figures.py**（论文自动生成）
-5) **跑 10 seeds + 输出 Table 8/9/10**（SCI 可复现）
+3) **跑正式 10 seeds + 鲁棒评估 + 消融评估**
+4) **用 `scripts/make_tables.py` 与 `scripts/figures/make_figures.py` 固化 Table/Fig**
+5) **基于最终表图撰写 Results、Ablation 与 Robustness 小节**
 
 ---
 

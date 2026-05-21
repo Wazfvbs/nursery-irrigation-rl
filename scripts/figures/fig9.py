@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 plt.rcParams["pdf.fonttype"] = 42
@@ -16,13 +17,13 @@ def parse_mean_std(x) -> Tuple[float, float]:
     if pd.isna(x):
         return float("nan"), float("nan")
     s = str(x).strip()
-    s = re.sub(r"\s*(卤|±)\s*", "+/-", s)
+    s = re.sub(r"\s*[±]\s*", "+/-", s)
     parts = re.split(r"\s*\+/-\s*", s)
     if len(parts) == 2:
         return float(parts[0]), float(parts[1])
     nums = re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", s)
     if len(nums) >= 1:
-        return float(nums[0]), (float(nums[1]) if len(nums) >= 2 else 0.0)
+        return float(nums[0]), (float(nums[1]) if len(nums) >= 2 else float("nan"))
     raise ValueError(f"cannot parse mean/std: {x}")
 
 
@@ -44,15 +45,17 @@ def delta_vs_full(
     if "Full" not in ms_dict:
         raise KeyError(f"[{metric_name}] missing 'Full' row.")
     full_mean, full_std = ms_dict["Full"]
+    full_std_plot = full_std if math.isfinite(full_std) else 0.0
 
     xs, ys, es = [], [], []
     for c in case_order:
         if c not in ms_dict:
             raise KeyError(f"[{metric_name}] missing '{c}' row.")
         m, s = ms_dict[c]
+        s_plot = s if math.isfinite(s) else 0.0
         xs.append(case_label.get(c, c))
         ys.append(m - full_mean)
-        es.append(math.sqrt(s * s + full_std * full_std))
+        es.append(math.sqrt(s_plot * s_plot + full_std_plot * full_std_plot))
     return xs, ys, es
 
 
@@ -82,7 +85,7 @@ def plot_grid(
     use_improvement_sign: bool,
     out_png: Path,
 ):
-    fig, axes = plt.subplots(2, 2, figsize=(11, 7))
+    fig, axes = plt.subplots(2, 2, figsize=(12.5, 7))
     axes = axes.flatten()
 
     for ax, (key, ylabel, to_pp) in zip(axes, metrics):
@@ -93,7 +96,7 @@ def plot_grid(
             es = [v * 100.0 for v in es]
         ys, es = maybe_flip(key, ys, es, use_improvement_sign=use_improvement_sign)
 
-        ax.bar(xlab, ys, yerr=es, capsize=4)
+        ax.bar(xlab, ys, yerr=np.asarray(es, dtype=float), capsize=4)
         ax.axhline(0.0, linewidth=1.0)
         ax.set_ylabel(ylabel)
         ax.tick_params(axis="x", rotation=20)
@@ -120,8 +123,13 @@ def main():
     main_df = pd.read_csv(args.main_csv)
     supp_df = pd.read_csv(args.supp_csv)
 
-    case_order = ["wo_Shaping", "wo_Target", "wo_UCB"]
-    case_label = {"wo_Shaping": "w/o shaping", "wo_Target": "w/o target", "wo_UCB": "w/o UCB"}
+    case_order = ["wo_Shaping", "wo_Target", "wo_UCB", "wo_Uncertainty"]
+    case_label = {
+        "wo_Shaping": "w/o shaping",
+        "wo_Target": "w/o target",
+        "wo_UCB": "w/o UCB",
+        "wo_Uncertainty": "w/o uncertainty",
+    }
 
     metrics_main = [
         ("TIR_ref", r"$\Delta$ within-target (pp)", True),

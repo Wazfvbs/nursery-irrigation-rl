@@ -153,6 +153,14 @@ def normalize_setting(s: Any, scenario: str) -> str:
     return alias.get(ss, ss if ss else "noise_only")
 
 
+def format_mean_std_value(mean: Any, std: Any, count: Any) -> str:
+    if not pd.notna(mean):
+        return "nan"
+    if not pd.notna(std) or int(count) <= 1:
+        return f"{float(mean):.6f}"
+    return f"{float(mean):.6f} +/- {float(std):.6f}"
+
+
 def to_mean_std(df: pd.DataFrame, group_key: str, cols: List[str]) -> pd.DataFrame:
     cols = [c for c in cols if c in df.columns]
     if group_key not in df.columns:
@@ -164,17 +172,16 @@ def to_mean_std(df: pd.DataFrame, group_key: str, cols: List[str]) -> pd.DataFra
     for c in cols:
         local[c] = pd.to_numeric(local[c], errors="coerce")
 
-    g = local.groupby(group_key)[cols].agg(["mean", "std"]).reset_index()
+    g = local.groupby(group_key)[cols].agg(["mean", "std", "count"]).reset_index()
     g.columns = [f"{a}_{b}" if b else a for a, b in g.columns]
 
     out = pd.DataFrame()
     out[group_key] = g[group_key]
     for col in cols:
-        m = g[f"{col}_mean"]
-        s = g[f"{col}_std"]
-        out[col] = m.map(lambda x: f"{x:.6f}" if pd.notna(x) else "nan") + " ± " + s.map(
-            lambda x: f"{x:.6f}" if pd.notna(x) else "nan"
-        )
+        out[col] = [
+            format_mean_std_value(m, s, n)
+            for m, s, n in zip(g[f"{col}_mean"], g[f"{col}_std"], g[f"{col}_count"])
+        ]
     return out
 
 
@@ -182,6 +189,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", type=str, default="outputs")
     ap.add_argument("--out", type=str, default="outputs/tables_ref")
+    ap.add_argument(
+        "--fix_metrics_metadata",
+        action="store_true",
+        help="Rewrite metrics.json files with normalized method/scenario/setting metadata.",
+    )
     args = ap.parse_args()
 
     ensure_dir(args.out)
@@ -219,6 +231,18 @@ def main() -> None:
             else:
                 setting = infer_setting_from_path(path)
         j["setting"] = normalize_setting(setting, scenario=scenario)
+
+        if args.fix_metrics_metadata:
+            persisted = load_json(path)
+            changed = False
+            keys = ("case", "scenario", "setting") if case_name else ("method", "scenario", "setting")
+            for key in keys:
+                if key in j and persisted.get(key) != j[key]:
+                    persisted[key] = j[key]
+                    changed = True
+            if changed:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(persisted, f, indent=2, ensure_ascii=False)
 
         rows.append(j)
 

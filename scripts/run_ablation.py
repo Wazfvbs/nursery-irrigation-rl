@@ -117,6 +117,8 @@ def main():
             train_cfg["seed"] = seed
             train_cfg.setdefault("ablation", {})
             train_cfg["ablation"].update(ab_flags)
+            train_cfg.setdefault("paths", {})
+            train_cfg["paths"]["out_dir"] = seed_dir
 
             # 训练阶段保持 UCB（由 ablation 控制），评估阶段建议关 UCB（公平且稳定）
             eval_cfg = copy.deepcopy(train_cfg)
@@ -149,6 +151,8 @@ def main():
             run_info = {
                 "method": f"Ablation::{case_name}",
                 "case": case_name,
+                "scenario": "nominal",
+                "setting": "nominal",
                 "seed": seed,
                 "model_path": model_path,
                 "eval_out": eval_out,
