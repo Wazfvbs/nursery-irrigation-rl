@@ -173,6 +173,7 @@ def rollout_policy(
 
     while not done:
         day = int(info.get("day", t))
+        stage_norm_decision = float(info.get("stage_norm", 0.0))
         Dr_obs = float(obs[0])  # policy sees observation (possibly noisy)
 
         I_cmd = _policy_act(policy, day=day, Dr_obs=Dr_obs, info=info)
@@ -183,8 +184,12 @@ def rollout_policy(
 
         row: Dict[str, Any] = {}
         row["t"] = t
-        row["day"] = int(info_next.get("day", day))
-        row["stage_norm"] = float(info_next.get("stage_norm", 0.0))
+        row["day"] = day
+        row["day_decision"] = day
+        row["day_next"] = int(info_next.get("day", day + 1))
+        row["stage_norm"] = stage_norm_decision
+        row["stage_norm_decision"] = stage_norm_decision
+        row["stage_norm_next"] = float(info_next.get("stage_norm", 0.0))
 
         # true state
         row["Dr"] = float(info_next.get("Dr_mm", 0.0))
@@ -239,7 +244,7 @@ def rollout_policy(
     traj_csv = os.path.join(out_dir, "trajectory.csv")
     if save_csv:
         base_cols = [
-            "t", "day", "stage_norm",
+            "t", "day", "day_decision", "day_next", "stage_norm", "stage_norm_decision", "stage_norm_next",
             "Dr", "theta",
             "Dr_obs", "ET0_obs", "stage_obs", "I_prev_obs",
             "TAW", "RAW",

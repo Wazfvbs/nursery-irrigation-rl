@@ -68,7 +68,11 @@ def rollout_baseline_noise(env, policy_name: str, policy, out_dir: str) -> Dict[
 
     traj = {
         "day": [],
+        "day_decision": [],
+        "day_next": [],
         "stage_norm": [],
+        "stage_norm_decision": [],
+        "stage_norm_next": [],
         "Dr": [],
         "theta": [],
         # train interval (debug)
@@ -91,6 +95,8 @@ def rollout_baseline_noise(env, policy_name: str, policy, out_dir: str) -> Dict[
 
     t = 0
     while not done:
+        day_decision = int(info.get("day", t))
+        stage_norm_decision = float(info.get("stage_norm", 0.0))
         Dr_obs = float(obs[0])  # ← 使用噪声后的观测
         I = float(policy.act(Dr_obs))
 
@@ -104,8 +110,12 @@ def rollout_baseline_noise(env, policy_name: str, policy, out_dir: str) -> Dict[
         hi_ref = float(info_next.get("Dr_hi_ref", hi_train))
         mid_ref = float(info_next.get("Dr_mid_ref", 0.5 * (lo_ref + hi_ref)))
 
-        traj["day"].append(float(info_next.get("day", t)))
-        traj["stage_norm"].append(float(info_next.get("stage_norm", 0.0)))
+        traj["day"].append(float(day_decision))
+        traj["day_decision"].append(float(day_decision))
+        traj["day_next"].append(float(info_next.get("day", day_decision + 1)))
+        traj["stage_norm"].append(float(stage_norm_decision))
+        traj["stage_norm_decision"].append(float(stage_norm_decision))
+        traj["stage_norm_next"].append(float(info_next.get("stage_norm", 0.0)))
         traj["Dr"].append(Dr_val)
         traj["theta"].append(float(info_next.get("theta", 0.0)))
 
