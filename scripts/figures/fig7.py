@@ -9,7 +9,7 @@ import pandas as pd
 
 
 METHOD_SPECS = [
-    ("PPO", "PPO-Optimized", "tab:blue", ["PPO", "PPO-Optimized"]),
+    ("UC-PPO", "UC-PPO", "tab:blue", ["UC-PPO", "PPO", "PPO-Optimized"]),
     (
         "TunedFAORule",
         "Tuned FAO-rule",
@@ -22,10 +22,15 @@ METHOD_SPECS = [
             "Tuned FAO Rule (grid)",
         ],
     ),
-    ("VanillaPPO", "Vanilla PPO", "tab:orange", ["VanillaPPO", "Vanilla PPO"]),
+    (
+        "FixedTargetPPO",
+        "Fixed-target PPO",
+        "tab:orange",
+        ["FixedTargetPPO", "Fixed-Target PPO", "VanillaPPO", "Vanilla PPO"],
+    ),
 ]
 
-TICK_LABELS = ["PPO-\nOptimized", "Tuned\nFAO-rule", "Vanilla\nPPO"]
+TICK_LABELS = ["UC-PPO", "Tuned\nFAO-rule", "Fixed-target\nPPO"]
 
 PANEL_SPECS = [
     {
@@ -126,12 +131,12 @@ def padded_limits(means, stds, margin=0.08, floor_zero=False, snap=None, min_spa
 def tir_limits(means, stds):
     lows = np.asarray(means) - np.asarray(stds)
     highs = np.asarray(means) + np.asarray(stds)
-    lo = max(98.5, float(np.nanmin(lows)) - 0.08)
+    lo = max(0.0, float(np.nanmin(lows)) - 1.5)
     hi = min(100.2, float(np.nanmax(highs)) + 0.08)
     lo = math.floor(lo * 2.0) / 2.0
     hi = math.ceil(hi * 20.0) / 20.0
-    if hi - lo < 0.5:
-        lo = max(98.5, hi - 0.5)
+    if hi - lo < 2.0:
+        lo = max(0.0, hi - 2.0)
     return lo, hi
 
 

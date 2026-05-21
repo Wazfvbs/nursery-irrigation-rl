@@ -72,19 +72,33 @@ def infer_method_from_path(path: str, case_name: Optional[str]) -> str:
 
     for part in parts:
         if part in ("vanilla_ppo_runs", "vanilla_ppo_runs_ref"):
-            return "VanillaPPO"
+            return "FixedTargetPPO"
         if part in ("ppo_runs", "ppo_runs_ref"):
-            return "PPO"
+            return "UC-PPO"
 
     for part in parts:
         if part in ("ablation", "ablation_ref"):
             if case_name == "Full":
-                return "PPO"
+                return "UC-PPO"
             if case_name:
                 return f"Ablation::{case_name}"
             return "Ablation"
 
     return "Unknown"
+
+
+def normalize_method_name(method: Any, path: str, case_name: Optional[str]) -> str:
+    name = str(method)
+    compact = name.replace(" ", "").replace("-", "").replace("_", "").lower()
+    parts = split_parts(path)
+
+    if compact in ("vanillappo", "fixedtargetppo"):
+        return "FixedTargetPPO"
+    if compact in ("ppo", "ppooptimized", "ucppo") and (
+        "ppo_runs" in parts or "ppo_runs_ref" in parts or case_name == "Full"
+    ):
+        return "UC-PPO"
+    return name
 
 
 def infer_scenario_from_path(path: str) -> str:
@@ -189,7 +203,8 @@ def main() -> None:
         if not j.get("method"):
             j["method"] = infer_method_from_path(path, case_name)
         if str(j.get("case", "")) == "Full":
-            j["method"] = "PPO"
+            j["method"] = "UC-PPO"
+        j["method"] = normalize_method_name(j["method"], path, case_name)
 
         raw_scenario = j.get("scenario")
         scenario = normalize_scenario(raw_scenario)
@@ -210,10 +225,17 @@ def main() -> None:
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(args.out, "metrics_all_runs.csv"), index=False, encoding="utf-8-sig")
 
-    # Table 8: nominal only, keep Full from ablation as PPO, drop other ablation cases.
+    # Table 8: nominal only. Prefer the official main run; use ablation Full only as a fallback.
     df_nominal = df[df["scenario"] == "nominal"].copy()
     if "case" in df_nominal.columns:
-        df_nominal = df_nominal[(df_nominal["case"].isna()) | (df_nominal["case"] == "Full")].copy()
+        has_main_ucppo = (
+            (df_nominal["method"].astype(str) == "UC-PPO")
+            & (df_nominal["case"].isna())
+        ).any()
+        if has_main_ucppo:
+            df_nominal = df_nominal[df_nominal["case"].isna()].copy()
+        else:
+            df_nominal = df_nominal[(df_nominal["case"].isna()) | (df_nominal["case"] == "Full")].copy()
     df_nominal = df_nominal[~df_nominal["method"].astype(str).str.startswith("Ablation::")].copy()
 
     table8 = to_mean_std(df_nominal, "method", CORE_COLS)

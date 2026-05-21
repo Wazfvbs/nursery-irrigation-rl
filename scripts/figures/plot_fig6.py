@@ -74,6 +74,7 @@ def _mean_std_by_day(runs: dict, col: str) -> pd.DataFrame:
     stacked = _stack_by_day(runs, col)
     g = stacked.groupby("day")["value"]
     stat = pd.DataFrame({"mean": g.mean(), "std": g.std(ddof=1)}).reset_index()
+    stat["std"] = stat["std"].fillna(0.0)
     return stat.sort_values("day")
 
 
@@ -92,6 +93,7 @@ def _cumsum_mean_std(runs: dict, col: str) -> pd.DataFrame:
 
     g = per_seed.groupby("day")["cumsum"]
     stat = pd.DataFrame({"mean": g.mean(), "std": g.std(ddof=1)}).reset_index()
+    stat["std"] = stat["std"].fillna(0.0)
     return stat.sort_values("day")
 
 
@@ -138,7 +140,7 @@ def plot_fig6a_dr_distribution(ppo_runs, tuned_runs, vanilla_runs, out_prefix: s
     ax.axhspan(band_lo, band_hi, alpha=0.18)
 
     data = [dr_ppo, dr_tuned, dr_vanilla]
-    labels = ["PPO", "Tuned FAO-rule", "Vanilla PPO"]
+    labels = ["UC-PPO", "Tuned FAO-rule", "Fixed-target PPO"]
 
     bp = ax.boxplot(
         data,
@@ -201,7 +203,7 @@ def plot_fig6b_irrigation_actions(
 
     m_clip = np.minimum(m, irr_clip)
 
-    l_ppo, = ax.plot(d, m_clip, color=c_ppo, linewidth=2.2, label="PPO (mean, clipped)")
+    l_ppo, = ax.plot(d, m_clip, color=c_ppo, linewidth=2.2, label="UC-PPO (mean, clipped)")
     ax.fill_between(
         d,
         np.maximum(0, m_clip - s),
@@ -238,11 +240,11 @@ def plot_fig6b_irrigation_actions(
     l_tuned, = axins.plot(dd, mm, color=c_tuned, linewidth=1.8, label="Tuned FAO-rule")
     axins.fill_between(dd, np.maximum(0, mm - ss), mm + ss, color=c_tuned, alpha=0.12)
 
-    # Vanilla PPO
+    # Fixed-target PPO
     dd = it_vanilla["day"].to_numpy()
     mm = it_vanilla["mean"].to_numpy()
     ss = it_vanilla["std"].to_numpy()
-    l_vanilla, = axins.plot(dd, mm, color=c_vanilla, linewidth=1.8, label="Vanilla PPO")
+    l_vanilla, = axins.plot(dd, mm, color=c_vanilla, linewidth=1.8, label="Fixed-target PPO")
     axins.fill_between(dd, np.maximum(0, mm - ss), mm + ss, color=c_vanilla, alpha=0.12)
 
     # 去掉 inset 标题（你想删掉的小图标题）
@@ -250,8 +252,9 @@ def plot_fig6b_irrigation_actions(
 
     axins.set_xlim(d.min(), d.max())
     ymax = max(
-        float(it_tuned["mean"].max() + it_tuned["std"].max()),
-        float(it_vanilla["mean"].max() + it_vanilla["std"].max())
+        float((it_tuned["mean"] + it_tuned["std"]).max()),
+        float((it_vanilla["mean"] + it_vanilla["std"]).max()),
+        1.0,
     )
     axins.set_ylim(0, ymax)
     axins.grid(alpha=0.20)
@@ -282,9 +285,9 @@ def plot_fig6c_cumulative_irrigation(ppo_runs, tuned_runs, vanilla_runs, out_pre
         ax.plot(dd, mm, linewidth=2, label=label)
         ax.fill_between(dd, np.maximum(0, mm - ss), mm + ss, alpha=0.18)
 
-    plot_cum(cum_ppo, "PPO")
+    plot_cum(cum_ppo, "UC-PPO")
     plot_cum(cum_tuned, "Tuned FAO-rule")
-    plot_cum(cum_vanilla, "Vanilla PPO")
+    plot_cum(cum_vanilla, "Fixed-target PPO")
 
     ax.set_ylabel(r"Cumulative irrigation $\sum_{t \leq d} I_t$ (mm)")
     ax.set_xlabel("Day")
@@ -317,6 +320,7 @@ def main():
     ])
     vanilla_pat = _pick_first_nonempty_pattern([
         str(root / "output" / "vanilla_ppo_runs" / "seed*" / "eval" / "trajectory.csv"),
+        str(root / "output" / "robust_test_ref" / "FixedTargetPPO" / "nominal" / "seed*" / "trajectory.csv"),
         str(root / "output" / "robust_test_ref" / "VanillaPPO" / "nominal" / "seed*" / "trajectory.csv"),
     ])
 
